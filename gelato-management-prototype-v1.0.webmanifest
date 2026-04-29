@@ -1,0 +1,12 @@
+{
+  "name": "Gelato OS",
+  "short_name": "Gelato OS",
+  "description": "젤라또 가게 운영 — 레시피·메뉴·원가 프로토타입",
+  "start_url": "./gelato-management-prototype-v1.0.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f5f3",
+  "theme_color": "#0F6E56",
+  "lang": "ko"
+}

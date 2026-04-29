@@ -1,0 +1,2028 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#0F6E56"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="format-detection" content="telephone=no"/>
+<link rel="manifest" href="gelato-management-prototype-v1.1.webmanifest"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect fill='%230F6E56' width='180' height='180' rx='40'/%3E%3Ctext x='90' y='118' font-size='88' text-anchor='middle' fill='white' font-family='system-ui,sans-serif' font-weight='600'%3EG%3C/text%3E%3C/svg%3E"/>
+<title>Gelato OS — 프로토타입 v1.1</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f3;color:#1a1a18;font-size:14px;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+
+.app{display:flex;height:100dvh;max-height:100vh;overflow:hidden;position:relative;}
+
+/* Mobile nav */
+.nav-backdrop{display:none;position:fixed;inset:0;background:rgba(26,26,24,.35);z-index:90;backdrop-filter:blur(2px);}
+.nav-backdrop.visible{display:block;}
+.nav-menu-btn{display:none;align-items:center;justify-content:center;width:44px;height:44px;margin-left:-8px;border:none;background:transparent;border-radius:10px;color:#1a1a18;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;}
+.nav-menu-btn:hover{background:#f1efe8;}
+.nav-menu-btn svg{width:22px;height:22px;}
+
+/* Sidebar */
+.sidebar{width:210px;background:#fff;border-right:1px solid #e8e8e4;display:flex;flex-direction:column;padding:16px 0;flex-shrink:0;z-index:100;}
+.sidebar-logo{padding:0 16px 16px;border-bottom:1px solid #e8e8e4;margin-bottom:8px;}
+.sidebar-logo h2{font-size:15px;font-weight:600;color:#1a1a18;}
+.sidebar-logo p{font-size:11px;color:#9a9a94;margin-top:2px;}
+.nav-section{font-size:10px;color:#9a9a94;padding:12px 16px 4px;text-transform:uppercase;letter-spacing:.06em;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:13px;cursor:pointer;color:#5f5e5a;border:none;background:none;width:100%;text-align:left;}
+.nav-item:hover{background:#f1efe8;}
+.nav-item.active{color:#0F6E56;background:#e1f5ee;font-weight:500;}
+.nav-icon{width:16px;height:16px;flex-shrink:0;}
+.nav-locked{opacity:0.4;cursor:not-allowed;}
+
+/* Layout */
+.content{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:52px;background:#fff;border-bottom:1px solid #e8e8e4;display:flex;align-items:center;padding:0 20px;gap:8px;flex-shrink:0;}
+.topbar h1{font-size:15px;font-weight:500;flex:1;}
+.btn{padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid #d3d1c7;background:#fff;color:#1a1a18;}
+.btn:hover{background:#f1efe8;}
+.btn-primary{background:#0F6E56;color:#fff;border-color:#0F6E56;}
+.btn-primary:hover{background:#085041;}
+.main{flex:1;overflow-y:auto;padding:20px;}
+.page{display:none;}
+.page.active{display:block;}
+
+/* Stats */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
+.stat{background:#f1efe8;border-radius:8px;padding:14px;}
+.stat-label{font-size:11px;color:#9a9a94;margin-bottom:4px;}
+.stat-val{font-size:22px;font-weight:500;}
+.stat-sub{font-size:11px;color:#5f5e5a;margin-top:2px;}
+
+/* Cards */
+.card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;padding:16px;margin-bottom:14px;}
+.card-title{font-size:13px;font-weight:500;margin-bottom:12px;}
+
+/* Table */
+.table{width:100%;border-collapse:collapse;font-size:13px;}
+.table th{text-align:left;font-size:11px;color:#9a9a94;padding:0 0 8px;font-weight:400;border-bottom:1px solid #e8e8e4;}
+.table td{padding:10px 0;border-bottom:1px solid #e8e8e4;}
+.table tr:last-child td{border-bottom:none;}
+
+/* Badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;margin-right:4px;}
+.badge-active{background:#e1f5ee;color:#0F6E56;}
+.badge-season{background:#faeeda;color:#854F0B;}
+.badge-soldout{background:#f1efe8;color:#5f5e5a;}
+.badge-best{background:#e6f1fb;color:#185FA5;}
+
+/* Flavor grid */
+.flavor-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.flavor-card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;padding:14px;cursor:pointer;}
+.flavor-card:hover{border-color:#b4b2a9;}
+.flavor-name{font-size:13px;font-weight:500;margin-bottom:6px;}
+.flavor-cat{font-size:11px;color:#9a9a94;margin-bottom:8px;}
+
+/* Form elements */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.form-group{display:flex;flex-direction:column;gap:4px;}
+.form-full{margin-bottom:12px;}
+.label{font-size:12px;color:#5f5e5a;}
+.label-req::after{content:" *";color:#D85A30;}
+input[type=text],input[type=number],input[type=datetime-local],select,textarea{font-size:13px;padding:7px 10px;border:1px solid #d3d1c7;border-radius:8px;background:#fff;color:#1a1a18;width:100%;font-family:inherit;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#1D9E75;}
+textarea{resize:vertical;min-height:72px;line-height:1.5;}
+.hint{font-size:11px;color:#9a9a94;margin-top:3px;}
+
+/* Tag */
+.tag-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{padding:4px 10px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid #d3d1c7;color:#5f5e5a;background:#fff;}
+.tag.sel{background:#e1f5ee;color:#0F6E56;border-color:#9FE1CB;}
+
+/* Ingredient rows */
+.ing-header{display:grid;grid-template-columns:1fr 90px 80px 70px 28px;gap:8px;padding-bottom:6px;border-bottom:1px solid #e8e8e4;margin-bottom:8px;}
+.ing-header span{font-size:11px;color:#9a9a94;}
+.ing-row{display:grid;grid-template-columns:1fr 90px 80px 70px 28px;gap:8px;align-items:center;margin-bottom:8px;}
+.ratio{font-size:12px;color:#5f5e5a;text-align:right;padding-right:4px;}
+.ing-del{width:24px;height:24px;border:none;background:transparent;color:#9a9a94;cursor:pointer;font-size:18px;line-height:1;padding:0;}
+.ing-del:hover{color:#D85A30;}
+.add-btn{display:flex;align-items:center;gap:6px;font-size:13px;color:#1D9E75;cursor:pointer;padding:6px 0;background:none;border:none;font-family:inherit;}
+.add-btn:hover{color:#0F6E56;}
+
+/* Steps */
+.step-list{display:flex;flex-direction:column;gap:8px;}
+.step-row{display:flex;align-items:flex-start;gap:8px;}
+.step-num{width:22px;height:22px;border-radius:50%;background:#e1f5ee;color:#0F6E56;font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:7px;}
+.step-del{width:24px;height:24px;border:none;background:transparent;color:#9a9a94;cursor:pointer;font-size:18px;line-height:1;padding:0;margin-top:6px;}
+.step-del:hover{color:#D85A30;}
+
+/* Cost panel */
+.body-inner{flex:1;display:flex;overflow:hidden;}
+.form-area{flex:1;overflow-y:auto;padding:20px;}
+.cost-panel{width:240px;border-left:1px solid #e8e8e4;background:#fff;overflow-y:auto;padding:16px;flex-shrink:0;}
+.cost-title{font-size:12px;font-weight:500;margin-bottom:12px;}
+.cost-divider{height:1px;background:#e8e8e4;margin:12px 0;}
+.cost-row-p{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:8px;color:#5f5e5a;}
+.cost-val{font-size:12px;color:#1a1a18;font-weight:500;}
+.sell-input-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;color:#5f5e5a;}
+.sell-input-row input{width:70px;text-align:right;font-size:12px;padding:4px 8px;}
+.cost-rate-box{border-radius:8px;padding:10px;margin-top:12px;text-align:center;}
+.cost-rate-box.good{background:#e1f5ee;}
+.cost-rate-box.warn{background:#faeeda;}
+.cost-rate-box.bad{background:#fcebeb;}
+.rate-label{font-size:11px;margin-bottom:2px;}
+.rate-val{font-size:22px;font-weight:500;}
+.ing-bar-label{display:flex;justify-content:space-between;font-size:11px;color:#9a9a94;margin-bottom:3px;}
+.ing-bar-track{height:5px;background:#f1efe8;border-radius:3px;overflow:hidden;margin-bottom:8px;}
+.ing-bar-fill{height:100%;border-radius:3px;transition:width .3s;}
+
+/* Section */
+.section{background:#fff;border:1px solid #e8e8e4;border-radius:12px;padding:16px;margin-bottom:14px;}
+.sec-title{font-size:13px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.sec-badge{font-size:10px;padding:2px 7px;border-radius:20px;background:#e1f5ee;color:#0F6E56;font-weight:400;}
+
+/* Production log */
+.prod-log{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #e8e8e4;}
+.prod-log:last-child{border-bottom:none;}
+.prod-dot{width:8px;height:8px;border-radius:50%;background:#1D9E75;flex-shrink:0;}
+.prod-info{flex:1;}
+.prod-name{font-size:13px;font-weight:500;}
+.prod-meta{font-size:11px;color:#9a9a94;}
+.prod-qty{font-size:13px;font-weight:500;color:#0F6E56;}
+
+/* Breadcrumb */
+.breadcrumb{font-size:13px;color:#9a9a94;cursor:pointer;}
+.breadcrumb:hover{color:#1a1a18;}
+.bc-sep{font-size:13px;color:#9a9a94;padding:0 4px;}
+.bc-cur{font-size:13px;color:#1a1a18;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Staff & payroll (v1.1) */
+.badge-warn{background:#faeeda;color:#854F0B;}
+.badge-ok{background:#e1f5ee;color:#0F6E56;}
+.badge-muted{background:#f1efe8;color:#5f5e5a;}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #e8e8e4;margin-bottom:16px;flex-wrap:wrap;}
+.tab{padding:8px 14px;font-size:13px;border:none;background:transparent;color:#5f5e5a;cursor:pointer;border-radius:8px 8px 0 0;font-family:inherit;-webkit-tap-highlight-color:transparent;}
+.tab:hover{background:#f1efe8;}
+.tab.active{color:#0F6E56;font-weight:500;background:#e1f5ee;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+.schedule-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;}
+.schedule-table{border-collapse:collapse;font-size:12px;min-width:680px;width:100%;}
+.schedule-table th,.schedule-table td{border:1px solid #e8e8e4;padding:6px 8px;text-align:center;vertical-align:middle;}
+.schedule-table th{background:#f1efe8;font-weight:500;color:#5f5e5a;}
+.schedule-table .name-col{text-align:left;font-weight:500;min-width:76px;white-space:nowrap;}
+.shift-cell{font-size:11px;color:#5f5e5a;line-height:1.35;}
+.ta-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #e8e8e4;}
+.ta-row:last-child{border-bottom:none;}
+.ta-name{font-weight:500;min-width:88px;}
+.ta-meta{flex:1;font-size:12px;color:#9a9a94;min-width:140px;}
+.ta-btns{display:flex;gap:6px;flex-wrap:wrap;}
+.btn-sm{padding:6px 12px;font-size:12px;min-height:36px;border-radius:8px;}
+.chk-list{display:flex;flex-direction:column;gap:8px;}
+.chk-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #e8e8e4;border-radius:10px;background:#fafaf8;}
+.chk-item input{margin-top:3px;width:18px;height:18px;accent-color:#0F6E56;flex-shrink:0;}
+.chk-item label{flex:1;font-size:13px;line-height:1.45;cursor:pointer;}
+.payroll-highlight{background:#f0f7ff;border:1px solid #c5dbf7;border-radius:12px;padding:14px;margin-bottom:14px;}
+.payroll-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;color:#5f5e5a;gap:12px;}
+.payroll-row.total{border-top:1px solid #e8e8e4;margin-top:8px;padding-top:12px;font-weight:600;color:#1a1a18;font-size:15px;}
+.link-action{background:none;border:none;color:#185FA5;font-size:12px;cursor:pointer;padding:4px 0;text-decoration:underline;font-family:inherit;}
+.hint-inline{font-size:11px;color:#9a9a94;margin-top:6px;line-height:1.45;}
+.staff-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.name-link{background:none;border:none;padding:0;font:inherit;font-weight:500;color:#185FA5;cursor:pointer;text-align:left;text-decoration:underline;}
+.name-link:hover{color:#0F6E56;}
+.staff-split{display:none;}
+.staff-split.active{display:block;}
+.workday-lines{font-size:12px;line-height:1.45;color:#1a1a18;}
+.badge-type{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;background:#e6f1fb;color:#185FA5;}
+.badge-type.pt{background:#f1efe8;color:#5f5e5a;}
+.badge-type.mgr{background:#e1f5ee;color:#0F6E56;}
+.detail-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;}
+.detail-photo{width:96px;height:96px;border-radius:12px;border:1px solid #e8e8e4;background:#f1efe8;object-fit:cover;}
+.file-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#5f5e5a;}
+.file-row input[type=file]{font-size:12px;max-width:100%;}
+.workrule-row{display:grid;grid-template-columns:100px 1fr auto;gap:8px;align-items:center;margin-bottom:8px;}
+@media (max-width:520px){.workrule-row{grid-template-columns:1fr;}}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.cal-mini{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px;text-align:center;margin-bottom:8px;}
+.cal-mini .hd{color:#9a9a94;font-weight:500;padding:4px 0;}
+.cal-mini .cell{min-height:36px;border:1px solid #e8e8e4;border-radius:6px;padding:4px 2px;background:#fff;cursor:pointer;font-size:10px;line-height:1.2;}
+.cal-mini .cell.muted{color:#c0c0ba;background:#fafaf8;}
+.cal-mini .cell.open{background:#e1f5ee;border-color:#9FE1CB;}
+.cal-mini .cell.middle{background:#e6f1fb;border-color:#c5dbf7;}
+.cal-mini .cell.close{background:#faeeda;border-color:#e8d4a8;}
+.schedule-subtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+.schedule-subtabs button{padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid #d3d1c7;background:#fff;cursor:pointer;font-family:inherit;}
+.schedule-subtabs button.sel{background:#e1f5ee;border-color:#9FE1CB;color:#0F6E56;font-weight:500;}
+.grid-time-table{border-collapse:collapse;font-size:12px;width:100%;min-width:720px;}
+.grid-time-table th,.grid-time-table td{border:1px solid #e8e8e4;padding:4px 6px;vertical-align:middle;}
+.grid-time-table th.time-col{width:88px;background:#f1efe8;text-align:left;font-weight:500;color:#5f5e5a;}
+.grid-time-table th{background:#fafaf8;font-weight:500;}
+.grid-time-table select{width:100%;font-size:11px;padding:4px;}
+.month-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;}
+.month-shift-table{border-collapse:collapse;width:100%;table-layout:fixed;}
+.month-shift-table th{border:1px solid #e8e8e4;padding:3px 4px;text-align:center;font-size:12px;}
+.mcal-cell{border:1px solid #e8e8e4;vertical-align:top;padding:4px;min-height:72px;background:#fff;}
+.mcal-cell.muted{background:#fafaf8;}
+.mcal-cell.today{background:#f0f7ff;border-color:#c5dbf7;}
+.mcal-day-num{font-size:11px;color:#9a9a94;margin-bottom:4px;}
+.mcal-day-num.today-num{font-weight:600;color:#185FA5;}
+.mcal-workers{display:flex;flex-wrap:wrap;gap:3px;align-items:center;}
+.mcal-chip{display:inline-block;padding:2px 6px;border-radius:20px;font-size:10px;cursor:pointer;font-weight:500;line-height:1.4;}
+.mcal-chip.shift-open{background:#e1f5ee;color:#0F6E56;}
+.mcal-chip.shift-middle{background:#e6f1fb;color:#185FA5;}
+.mcal-chip.shift-close{background:#faeeda;color:#854F0B;}
+.mcal-chip:not([class*=shift-]){background:#f1efe8;color:#5f5e5a;}
+.mcal-add-btn{background:none;border:1px dashed #d3d1c7;border-radius:20px;color:#9a9a94;font-size:10px;padding:1px 6px;cursor:pointer;line-height:1.4;}
+.mcal-add-btn:hover{border-color:#1D9E75;color:#1D9E75;}
+
+/* 주간 드래그 그리드 */
+.week-staff-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 0 12px;}
+.week-staff-btn{padding:5px 12px;border-radius:20px;border:1px solid #d3d1c7;background:#fff;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;}
+.week-staff-btn:hover{border-color:#1D9E75;color:#1D9E75;}
+.week-staff-btn.sel{background:#e1f5ee;border-color:#9FE1CB;color:#0F6E56;font-weight:500;}
+.week-staff-btn.erase{color:#D85A30;}
+.week-staff-btn.erase.sel{background:#fcebeb;border-color:#f4bebe;color:#D85A30;}
+.grid-time-table{border-collapse:collapse;font-size:12px;width:100%;min-width:640px;}
+.grid-time-table th,.grid-time-table td{border:1px solid #e8e8e4;padding:3px 4px;vertical-align:top;}
+.grid-time-table th.time-col{width:72px;background:#f1efe8;text-align:left;font-weight:500;color:#5f5e5a;font-size:11px;white-space:nowrap;}
+.grid-time-table th{background:#fafaf8;font-weight:500;text-align:center;}
+.wk-cell{min-height:32px;cursor:crosshair;user-select:none;-webkit-user-select:none;}
+.wk-cell.filled{background:#f0fbf6;}
+.wk-cell:hover{background:#e8f8f2;}
+.week-chip{display:inline-block;padding:2px 6px;border-radius:20px;font-size:10px;background:#e1f5ee;color:#0F6E56;margin:1px;font-weight:500;}
+
+/* 모달 공통 */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(26,26,24,.5);z-index:200;align-items:center;justify-content:center;padding:16px;}
+.modal-overlay.open{display:flex;}
+.modal-box{background:#fff;border-radius:16px;padding:20px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18);}
+.modal-title{font-size:14px;font-weight:500;margin-bottom:14px;}
+.modal-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;}
+.mm-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f1efe8;}
+.mm-row:last-child{border-bottom:none;}
+.mm-name{min-width:72px;font-size:13px;}
+.mm-shift-sel{flex:1;font-size:13px;padding:5px 8px;border:1px solid #d3d1c7;border-radius:6px;}
+
+/* 출퇴근 수정 모달 */
+.att-edit-form{display:flex;flex-direction:column;gap:10px;}
+.att-edit-form label{font-size:12px;color:#5f5e5a;}
+.att-edit-form input{font-size:13px;padding:6px 10px;border:1px solid #d3d1c7;border-radius:8px;}
+.att-admin-box{border:1px solid #e8d4a8;border-radius:10px;padding:12px;background:#faeeda;margin-top:8px;}
+.att-admin-box .admin-hint{font-size:11px;color:#854F0B;margin-bottom:8px;line-height:1.45;}
+
+/* 호버 팝업 */
+#worker-popup{position:fixed;background:#1a1a18;color:#fff;font-size:12px;padding:8px 12px;border-radius:8px;line-height:1.5;z-index:300;pointer-events:none;display:none;max-width:200px;}
+
+/* Table horizontal scroll (mobile) */
+.table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px;}
+.table-scroll .table{min-width:560px;}
+
+/* Cost calculator ingredient rows */
+.cost-ing-head,.cost-ing-row{display:grid;grid-template-columns:minmax(72px,1fr) 72px 64px 64px 20px;gap:8px;align-items:center;}
+.cost-ing-head{font-size:11px;color:#9a9a94;padding-bottom:6px;border-bottom:1px solid #e8e8e4;margin-bottom:8px;}
+.cost-ing-head span:nth-child(2),.cost-ing-head span:nth-child(3),.cost-ing-head span:nth-child(4){text-align:center;}
+.cost-ing-row{margin-bottom:8px;}
+.cost-ing-row>span:first-child{font-size:13px;color:#1a1a18;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cost-ing-row input{text-align:right;font-size:13px;padding:7px 8px;}
+
+/* Touch targets */
+.btn{min-height:40px;}
+.topbar .btn{flex-shrink:0;}
+
+/* —— Responsive —— */
+@media (max-width:1100px){
+  .stat-grid{grid-template-columns:repeat(2,1fr);}
+  .flavor-grid{grid-template-columns:repeat(2,1fr);}
+}
+
+@media (max-width:900px){
+  .body-inner{flex-direction:column;}
+  .form-area{max-height:none;overflow-y:visible;padding:16px;}
+  .cost-panel{width:100%;border-left:none;border-top:1px solid #e8e8e4;max-height:42vh;overflow-y:auto;padding:16px;}
+}
+
+@media (max-width:768px){
+  .nav-menu-btn{display:flex;}
+  .sidebar{
+    position:fixed;left:0;top:0;bottom:0;width:min(280px,86vw);
+    padding-top:calc(12px + env(safe-area-inset-top));
+    box-shadow:4px 0 24px rgba(0,0,0,.08);
+    transform:translateX(-102%);
+    transition:transform .22s ease;
+  }
+  .sidebar.open{transform:translateX(0);}
+  .content{min-width:0;}
+  .topbar{padding:0 12px 0 4px;flex-wrap:wrap;min-height:52px;height:auto;gap:6px;padding-bottom:8px;padding-top:6px;}
+  .topbar h1{font-size:14px;min-width:0;flex:1 1 120px;}
+  .main{padding:12px 14px;padding-bottom:calc(16px + env(safe-area-inset-bottom));}
+  .stat-grid{grid-template-columns:repeat(2,1fr);gap:8px;}
+  .stat-val{font-size:18px;}
+  .flavor-grid{grid-template-columns:repeat(2,1fr);gap:8px;}
+  .form-row{grid-template-columns:1fr;}
+  .card,.section{padding:14px;}
+}
+
+@media (max-width:640px){
+  .ing-header{display:none;}
+  .ing-row{
+    display:grid;
+    grid-template-columns:1fr 1fr 44px;
+    grid-template-rows:auto auto;
+    gap:8px 10px;
+    padding:12px;
+    background:#fafaf8;
+    border:1px solid #e8e8e4;
+    border-radius:10px;
+    margin-bottom:10px;
+  }
+  .ing-row input[type=text]{grid-column:1/3;grid-row:1;min-width:0;}
+  .ing-row .ing-del{grid-column:3;grid-row:1;width:44px;height:44px;align-self:start;justify-self:end;}
+  .ing-row input[type=number]:nth-of-type(1){grid-column:1;grid-row:2;}
+  .ing-row input[type=number]:nth-of-type(2){grid-column:2;grid-row:2;}
+  .ing-row .ratio{grid-column:1/-1;grid-row:3;text-align:left;padding:0;font-size:12px;color:#9a9a94;}
+  .ing-row .ratio::before{content:'배합 ';font-weight:500;color:#5f5e5a;}
+}
+
+@media (max-width:520px){
+  .stat-grid{grid-template-columns:1fr;}
+  .flavor-grid{grid-template-columns:1fr;}
+  .cost-ing-head{display:none;}
+  .cost-ing-row{
+    grid-template-columns:1fr 1fr;
+    padding:10px 0;
+    border-bottom:1px solid #e8e8e4;
+    gap:8px;
+  }
+  .cost-ing-row>span:first-child{grid-column:1/-1;font-weight:500;white-space:normal;}
+  .cost-ing-row input:nth-of-type(1){grid-column:1;}
+  .cost-ing-row input:nth-of-type(2){grid-column:2;}
+  .cost-ing-row .cost-sub{grid-column:1/-1;text-align:right;font-size:13px;font-weight:500;color:#1a1a18;}
+  .prod-log{flex-wrap:wrap;gap:8px;}
+  .prod-qty{width:100%;text-align:right;padding-top:4px;}
+}
+
+@media (min-width:769px){
+  .sidebar{transform:none !important;}
+}
+</style>
+</head>
+<body>
+
+<div class="nav-backdrop" id="nav-backdrop" onclick="closeMobileNav()" aria-hidden="true"></div>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <h2>Gelato OS</h2>
+      <p>달콤한 가게 운영</p>
+    </div>
+    <div class="nav-section">Feature 1</div>
+    <button class="nav-item active" onclick="showPage('recipes',this)" id="nav-recipes">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 6h6M5 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      레시피 관리
+    </button>
+    <button class="nav-item" onclick="showPage('flavors',this)">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      메뉴판
+    </button>
+    <button class="nav-item" onclick="showPage('cost',this)">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M3 13l3-4 3 2 4-5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      원가 계산기
+    </button>
+    <button class="nav-item" onclick="showPage('production',this)">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="7" width="3" height="7" rx="1" fill="currentColor" opacity="0.5"/><rect x="6.5" y="4" width="3" height="10" rx="1" fill="currentColor" opacity="0.7"/><rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      생산 기록
+    </button>
+    <div class="nav-section" style="margin-top:8px;">Feature 2</div>
+    <button class="nav-item nav-locked" disabled>
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="4" y="7" width="8" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      재고 관리
+    </button>
+    <div class="nav-section" style="margin-top:8px;">Feature 3·4</div>
+    <button class="nav-item" onclick="showPage('staff',this)" id="nav-staff">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 14v-1c0-1.5 1.2-2.8 4.5-2.8s4.5 1.3 4.5 2.8v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      인력 관리
+    </button>
+    <button class="nav-item" onclick="showPage('payroll',this)" id="nav-payroll">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3" width="11" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M5 6.5h6M5 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      급여 및 정산
+    </button>
+  </div>
+
+  <!-- Main content -->
+  <div class="content">
+    <div class="topbar" id="topbar-default">
+      <button type="button" class="nav-menu-btn" id="nav-menu-btn" onclick="toggleMobileNav()" aria-label="메뉴 열기" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      </button>
+      <h1 id="page-title">레시피 관리</h1>
+      <button class="btn" onclick="alert('도움말 준비 중입니다.')">도움말</button>
+      <button class="btn btn-primary" id="top-cta" onclick="showRecipeForm()">+ 레시피 등록</button>
+    </div>
+    <div class="topbar" id="topbar-form" style="display:none;">
+      <button type="button" class="nav-menu-btn" id="nav-menu-btn-form" onclick="toggleMobileNav()" aria-label="메뉴 열기" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      </button>
+      <span class="breadcrumb" onclick="closeRecipeForm()">레시피 관리</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-cur">새 레시피 등록</span>
+      <button class="btn" onclick="alert('임시저장 완료!')">임시저장</button>
+      <button class="btn btn-primary" onclick="handleSave()">레시피 저장</button>
+    </div>
+
+    <!-- 일반 페이지 영역 -->
+    <div class="main" id="main-area">
+
+      <!-- 레시피 목록 -->
+      <div class="page active" id="page-recipes">
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">총 레시피</div><div class="stat-val">12</div><div class="stat-sub">+2 이번 달</div></div>
+          <div class="stat"><div class="stat-label">판매 중 플레이버</div><div class="stat-val">8</div><div class="stat-sub">시즌 2, 품절 1</div></div>
+          <div class="stat"><div class="stat-label">평균 1통 원가</div><div class="stat-val">4,820<span style="font-size:13px">원</span></div><div class="stat-sub">목표 5,000원 이하</div></div>
+          <div class="stat"><div class="stat-label">이번 주 생산</div><div class="stat-val">24<span style="font-size:13px">통</span></div><div class="stat-sub">전주 대비 +4</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">레시피 목록</div>
+          <div class="table-scroll">
+          <table class="table">
+            <thead><tr><th>플레이버명</th><th>베이스</th><th>재료 수</th><th>1통 원가</th><th>원가율</th><th>상태</th></tr></thead>
+            <tbody>
+              <tr><td>피스타치오</td><td>우유 베이스</td><td>6</td><td>5,240원</td><td>26%</td><td><span class="badge badge-active">판매중</span><span class="badge badge-best">베스트</span></td></tr>
+              <tr><td>딸기 소르베</td><td>과일 베이스</td><td>4</td><td>3,850원</td><td>19%</td><td><span class="badge badge-season">시즌</span></td></tr>
+              <tr><td>바닐라 밀크</td><td>우유 베이스</td><td>5</td><td>4,100원</td><td>20%</td><td><span class="badge badge-active">판매중</span></td></tr>
+              <tr><td>다크 초콜릿</td><td>우유 베이스</td><td>7</td><td>5,980원</td><td>30%</td><td><span class="badge badge-active">판매중</span></td></tr>
+              <tr><td>말차 라떼</td><td>우유 베이스</td><td>5</td><td>4,560원</td><td>23%</td><td><span class="badge badge-soldout">품절</span></td></tr>
+              <tr><td>유자 소르베</td><td>과일 베이스</td><td>4</td><td>3,200원</td><td>16%</td><td><span class="badge badge-season">시즌</span></td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 메뉴판 -->
+      <div class="page" id="page-flavors">
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">판매중</div><div class="stat-val" style="color:#0F6E56">8</div></div>
+          <div class="stat"><div class="stat-label">시즌 한정</div><div class="stat-val" style="color:#854F0B">2</div></div>
+          <div class="stat"><div class="stat-label">품절</div><div class="stat-val" style="color:#5f5e5a">1</div></div>
+          <div class="stat"><div class="stat-label">전체</div><div class="stat-val">11</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">오늘의 메뉴판</div>
+          <div class="flavor-grid">
+            <div class="flavor-card"><div class="flavor-name">피스타치오</div><div class="flavor-cat">우유 베이스</div><span class="badge badge-active">판매중</span><span class="badge badge-best">베스트</span></div>
+            <div class="flavor-card"><div class="flavor-name">바닐라 밀크</div><div class="flavor-cat">우유 베이스</div><span class="badge badge-active">판매중</span></div>
+            <div class="flavor-card"><div class="flavor-name">다크 초콜릿</div><div class="flavor-cat">우유 베이스</div><span class="badge badge-active">판매중</span></div>
+            <div class="flavor-card"><div class="flavor-name">딸기 소르베</div><div class="flavor-cat">과일 베이스</div><span class="badge badge-season">시즌</span></div>
+            <div class="flavor-card"><div class="flavor-name">유자 소르베</div><div class="flavor-cat">과일 베이스</div><span class="badge badge-season">시즌</span></div>
+            <div class="flavor-card" style="opacity:.55"><div class="flavor-name">말차 라떼</div><div class="flavor-cat">우유 베이스</div><span class="badge badge-soldout">품절</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 원가 계산기 -->
+      <div class="page" id="page-cost">
+        <div class="card">
+          <div class="card-title">레시피 선택</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="label">플레이버</label>
+              <select onchange="calcCost()">
+                <option value="5240">피스타치오</option>
+                <option value="3850">딸기 소르베</option>
+                <option value="4100">바닐라 밀크</option>
+                <option value="5980">다크 초콜릿</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="label">1통 용량 (g)</label>
+              <input type="number" value="2500" id="tub-g" oninput="calcCost()"/>
+            </div>
+          </div>
+          <div class="cost-ing-head"><span>재료명</span><span>사용량</span><span>단가(원)</span><span>소계(원)</span><span></span></div>
+          <div class="cost-ing-row"><span>우유</span><input type="number" value="1500" oninput="calcCost()"/><input type="number" value="1.2" step="0.01" oninput="calcCost()"/><span id="sub-0" class="cost-sub">1,800</span><span></span></div>
+          <div class="cost-ing-row"><span>설탕</span><input type="number" value="200" oninput="calcCost()"/><input type="number" value="1.8" step="0.01" oninput="calcCost()"/><span id="sub-1" class="cost-sub">360</span><span></span></div>
+          <div class="cost-ing-row"><span>피스타치오 페이스트</span><input type="number" value="300" oninput="calcCost()"/><input type="number" value="8.5" step="0.01" oninput="calcCost()"/><span id="sub-2" class="cost-sub">2,550</span><span></span></div>
+          <div class="cost-ing-row"><span>탈지분유</span><input type="number" value="80" oninput="calcCost()"/><input type="number" value="3.2" step="0.01" oninput="calcCost()"/><span id="sub-3" class="cost-sub">256</span><span></span></div>
+          <div style="background:#e1f5ee;border-radius:8px;padding:14px;margin-top:14px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;color:#085041;"><span>재료비 합계</span><span id="r-total">4,966원</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;color:#085041;"><span>판매가 (1컵)</span><span><input type="number" value="6500" id="sell-price" oninput="calcCost()" style="width:90px;text-align:right;background:transparent;border:none;border-bottom:1px solid #9FE1CB;border-radius:0;color:#085041;font-size:13px;padding:2px 4px;"/>원</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;color:#085041;"><span>통당 컵 수</span><span><input type="number" value="8" id="cups" oninput="calcCost()" style="width:60px;text-align:right;background:transparent;border:none;border-bottom:1px solid #9FE1CB;border-radius:0;color:#085041;font-size:13px;padding:2px 4px;"/>컵</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;color:#085041;border-top:1px solid #9FE1CB;padding-top:8px;margin-top:6px;"><span>1컵 원가</span><span id="r-cup">621원</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;color:#085041;margin-top:4px;"><span>원가율</span><span id="r-rate">9.6%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 생산 기록 -->
+      <div class="page" id="page-production">
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">오늘 생산</div><div class="stat-val">6<span style="font-size:13px">통</span></div></div>
+          <div class="stat"><div class="stat-label">이번 주</div><div class="stat-val">24<span style="font-size:13px">통</span></div></div>
+          <div class="stat"><div class="stat-label">이번 달</div><div class="stat-val">89<span style="font-size:13px">통</span></div></div>
+          <div class="stat"><div class="stat-label">최다 생산</div><div class="stat-val" style="font-size:14px">피스타치오</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">새 생산 기록 추가</div>
+          <div class="form-row">
+            <div class="form-group"><label class="label">플레이버</label><select><option>피스타치오</option><option>바닐라 밀크</option><option>다크 초콜릿</option><option>딸기 소르베</option></select></div>
+            <div class="form-group"><label class="label">생산 통 수</label><input type="number" value="2" min="1"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="label">생산 일시</label><input type="datetime-local" value="2026-04-28T10:00"/></div>
+            <div class="form-group"><label class="label">메모</label><input type="text" placeholder="특이사항 입력"/></div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:4px;" onclick="alert('생산 기록이 저장되었습니다.')">기록 저장</button>
+        </div>
+        <div class="card">
+          <div class="card-title">최근 생산 이력</div>
+          <div class="prod-log"><div class="prod-dot"></div><div class="prod-info"><div class="prod-name">피스타치오</div><div class="prod-meta">2026-04-28 10:00 · 담당: 김지수</div></div><div class="prod-qty">2통</div></div>
+          <div class="prod-log"><div class="prod-dot"></div><div class="prod-info"><div class="prod-name">바닐라 밀크</div><div class="prod-meta">2026-04-28 09:30 · 담당: 이민준</div></div><div class="prod-qty">1통</div></div>
+          <div class="prod-log"><div class="prod-dot"></div><div class="prod-info"><div class="prod-name">다크 초콜릿</div><div class="prod-meta">2026-04-27 14:00 · 담당: 김지수</div></div><div class="prod-qty">3통</div></div>
+          <div class="prod-log"><div class="prod-dot"></div><div class="prod-info"><div class="prod-name">딸기 소르베</div><div class="prod-meta">2026-04-27 11:00 · 담당: 박소연</div></div><div class="prod-qty">2통</div></div>
+          <div class="prod-log"><div class="prod-dot" style="background:#9FE1CB"></div><div class="prod-info"><div class="prod-name">유자 소르베</div><div class="prod-meta">2026-04-26 15:30 · 담당: 이민준</div></div><div class="prod-qty">2통</div></div>
+        </div>
+      </div>
+
+      <!-- 인력 관리 (Feature 3) -->
+      <div class="page" id="page-staff">
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">등록 직원</div><div class="stat-val" id="staff-stat-count">4</div><div class="stat-sub">고용형태·근무요일 관리</div></div>
+          <div class="stat"><div class="stat-label">이번 주 스케줄</div><div class="stat-val">28</div><div class="stat-sub">슬롯 배정됨</div></div>
+          <div class="stat"><div class="stat-label">오늘 출근</div><div class="stat-val" id="staff-stat-checked">2</div><div class="stat-sub">출근 기록 연동 → 급여</div></div>
+          <div class="stat"><div class="stat-label">보건증 만료 임박</div><div class="stat-val" style="font-size:15px;color:#854F0B">1명</div><div class="stat-sub">30일 이내</div></div>
+        </div>
+        <p class="hint-inline" style="margin-bottom:14px;">기획서 3항: 직원 프로필, 근무표, 출퇴근(T&amp;A), 오픈·미들·마감 체크리스트. 설계서 <code style="font-size:11px">staff</code> · <code style="font-size:11px">schedules</code> · <code style="font-size:11px">attendance</code> · <code style="font-size:11px">checklist_*</code> 테이블과 연결되는 UI 스케치입니다.</p>
+        <div class="tabs" role="tablist" aria-label="인력 관리 구역">
+          <button type="button" class="tab active" data-staff-tab="profile" onclick="staffTab('profile',this)">직원 프로필</button>
+          <button type="button" class="tab" data-staff-tab="schedule" onclick="staffTab('schedule',this)">근무표</button>
+          <button type="button" class="tab" data-staff-tab="ta" onclick="staffTab('ta',this)">출퇴근</button>
+          <button type="button" class="tab" data-staff-tab="checklist" onclick="staffTab('checklist',this)">체크리스트</button>
+        </div>
+        <div id="staff-panel-profile" class="tab-panel active">
+          <div id="staff-view-list" class="staff-split active">
+            <div class="card">
+              <div class="card-title">직원 목록 <span class="badge-muted" style="font-weight:400">이름 클릭 시 상세</span></div>
+              <div class="table-scroll">
+                <table class="table" id="staff-table">
+                  <thead><tr><th>이름</th><th>연락처</th><th>고용형태</th><th>근무요일</th><th>급여</th></tr></thead>
+                  <tbody id="staff-table-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div id="staff-view-detail" class="staff-split">
+            <div class="card">
+              <div class="detail-toolbar">
+                <button type="button" class="btn btn-sm" onclick="closeStaffDetail()">← 목록</button>
+                <span class="badge-muted" id="staff-detail-mode-label">신규</span>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="label label-req">이름</label>
+                  <input type="text" id="sd-name" placeholder="이름"/>
+                </div>
+                <div class="form-group">
+                  <label class="label">연락처</label>
+                  <input type="text" id="sd-phone" placeholder="010-0000-0000"/>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="label">사진</label>
+                  <div class="file-row"><input type="file" id="sd-photo" accept="image/*" onchange="onStaffPhoto(this)"/><img id="sd-photo-preview" class="detail-photo" alt="" style="display:none"/></div>
+                </div>
+                <div class="form-group">
+                  <label class="label">이력서 (파일)</label>
+                  <div class="file-row"><input type="file" id="sd-resume" accept=".pdf,.doc,.docx,.hwp" onchange="onStaffFileName(this,'resume')"/><span id="sd-resume-name" class="hint">미첨부</span></div>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="label">보건증 파일</label>
+                  <div class="file-row"><input type="file" id="sd-health-file" accept="image/*,.pdf" onchange="onStaffFileName(this,'health')"/><span id="sd-health-file-name" class="hint">미첨부</span></div>
+                </div>
+                <div class="form-group">
+                  <label class="label">보건증 만료일</label>
+                  <input type="date" id="sd-health-exp"/>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="label label-req">고용형태</label>
+                  <select id="sd-empl"></select>
+                  <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="sd-empl-new" placeholder="형태 추가 (예: 인턴)" style="max-width:200px"/>
+                    <button type="button" class="btn btn-sm" onclick="addEmploymentType()">형태 등록</button>
+                  </div>
+                  <span class="hint">매니저·직원·아르바이트 외 커스텀 타입 확장</span>
+                </div>
+                <div class="form-group">
+                  <label class="label">시급 (원)</label>
+                  <input type="number" id="sd-hourly" min="0" step="10" value="9860"/>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="label">고용 시작일</label>
+                  <input type="date" id="sd-hire"/>
+                  <span class="hint" id="sd-tenure">근무 기간: —</span>
+                </div>
+              </div>
+              <div class="section" style="margin-top:8px;padding:14px;">
+                <div class="sec-title">근무요일 및 형태</div>
+                <p class="hint-inline">요일별 오픈·미들·마감 선택. 행 추가로 복수 근무 표현.</p>
+                <div id="sd-workrules"></div>
+                <button type="button" class="add-btn" onclick="addWorkRuleRow()">+ 요일 행 추가</button>
+              </div>
+              <div class="section" style="margin-top:8px;padding:14px;">
+                <div class="sec-title">근무 스케줄 (달력)</div>
+                <div class="cal-nav">
+                  <button type="button" class="btn btn-sm" onclick="shiftStaffCal(-1)">◀ 이전</button>
+                  <span id="sd-cal-label" style="font-size:13px;font-weight:500">2026년 4월</span>
+                  <button type="button" class="btn btn-sm" onclick="shiftStaffCal(1)">다음 ▶</button>
+                </div>
+                <p class="hint-inline" style="margin-bottom:6px;">셀 클릭: 없음 → 오픈 → 미들 → 마감 순환 (해당 직원 전용)</p>
+                <div class="cal-mini" id="sd-cal-head"></div>
+                <div class="cal-mini" id="sd-cal-body" style="grid-auto-rows:minmax(36px,auto);"></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+                <button type="button" class="btn btn-primary" onclick="saveStaffDetail()">저장</button>
+                <button type="button" class="btn" onclick="closeStaffDetail()">취소</button>
+                <button type="button" class="link-action" onclick="goPayrollFromDetail()">급여 정산으로 →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="staff-panel-schedule" class="tab-panel">
+          <div class="schedule-subtabs" role="tablist">
+            <button type="button" id="sch-tab-week" class="sel" onclick="scheduleSubTab('week',this)">주간 (시간대별)</button>
+            <button type="button" id="sch-tab-month" onclick="scheduleSubTab('month',this)">월간 (오픈·미들·마감)</button>
+          </div>
+          <div id="schedule-panel-week" class="staff-split active">
+            <div class="card">
+              <div class="card-title">주간 근무표 <span class="badge-muted" style="font-weight:400" id="week-range-label">2026-04-27 ~ 05-03</span></div>
+              <p class="hint-inline">근무자 선택 후 셀을 클릭하거나 드래그하여 배정. 같은 요일 내 여러 시간대 연속 드래그 가능.</p>
+              <div id="week-staff-bar" class="week-staff-bar"></div>
+              <div class="schedule-scroll">
+                <table class="grid-time-table" id="week-vertical-table"></table>
+              </div>
+            </div>
+          </div>
+          <div id="schedule-panel-month" class="staff-split">
+            <div class="card">
+              <div class="card-title">월간 근무표</div>
+              <div class="form-row" style="max-width:280px;">
+                <div class="form-group">
+                  <label class="label">표시 월</label>
+                  <input type="month" id="month-shift-ym" value="2026-04" onchange="renderMonthShiftTable()"/>
+                </div>
+              </div>
+              <p class="hint-inline">날짜 셀의 근무자 이름에 마우스오버 → 예정/실제 시간 확인. 「+」클릭 또는 이름 클릭 → 배정 편집. 여기서 편집한 데이터는 직원 프로필 달력과 연동됩니다.</p>
+              <div class="month-scroll">
+                <table class="month-shift-table" id="month-shift-table"></table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="staff-panel-ta" class="tab-panel">
+          <div class="card">
+            <div class="card-title">출퇴근 기록 <span class="badge-muted" style="font-weight:400">GPS 권장은 실서비스 단계</span></div>
+            <p class="hint-inline"><code style="font-size:11px">attendance</code>에 기록되는 값이 급여 모듈의 «실근무 시간» 추정에 사용됩니다.</p>
+            <div id="ta-list"></div>
+          </div>
+        </div>
+        <div id="staff-panel-checklist" class="tab-panel">
+          <div class="card">
+            <div class="card-title">시간대별 체크리스트</div>
+            <div class="form-row" style="max-width:360px;">
+              <div class="form-group">
+                <label class="label">근무 구간</label>
+                <select id="chk-shift" onchange="renderChecklist()">
+                  <option value="open">오픈</option>
+                  <option value="middle">미들</option>
+                  <option value="close">마감</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="label">담당 직원</label>
+                <select id="chk-staff" onchange="renderChecklist()"></select>
+              </div>
+            </div>
+            <div class="chk-list" id="chk-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 급여 및 정산 (Feature 4) -->
+      <div class="page" id="page-payroll">
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">정산 대상 월</div><div class="stat-val" style="font-size:16px" id="payroll-stat-ym">2026-04</div><div class="stat-sub">직원별 산출</div></div>
+          <div class="stat"><div class="stat-label">이번 달 인건비(추정)</div><div class="stat-val" id="payroll-stat-total">—</div><div class="stat-sub">시급+수당 합</div></div>
+          <div class="stat"><div class="stat-label">주휴 포함 여부</div><div class="stat-val" style="font-size:15px">자동</div><div class="stat-sub">주 15h 이상 가정</div></div>
+          <div class="stat"><div class="stat-label">명세서</div><div class="stat-val" style="font-size:14px">미리보기</div><div class="stat-sub">PDF는 추후</div></div>
+        </div>
+        <p class="hint-inline" style="margin-bottom:14px;">기획서 4항: 월별 급여, 주휴·야간 수당, 명세서, (선택) 당일 매출 대비 인건비 비중. 설계서 <code style="font-size:11px">payroll</code>과 <code style="font-size:11px">staff_id</code> FK 연동을 전제로 한 데모 계산입니다. 법정 수식은 참고용 단순화 모델입니다.</p>
+        <div class="card">
+          <div class="card-title">정산 조건</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="label">급여 월</label>
+              <input type="month" id="payroll-month" value="2026-04" oninput="recalcPayroll();syncPayrollStaffOptions();"/>
+            </div>
+            <div class="form-group">
+              <label class="label">직원 선택</label>
+              <select id="payroll-staff" onchange="recalcPayroll()"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="label">야간 근무 시간 (수동 조정)</label>
+              <input type="number" id="payroll-night-override" value="" min="0" step="0.5" placeholder="비우면 월 데이터 사용" oninput="recalcPayroll()"/>
+              <span class="hint">22:00~06:00 구간 합산 가정</span>
+            </div>
+            <div class="form-group">
+              <label class="label">당일 매출 (선택, 간이 손익)</label>
+              <input type="number" id="payroll-sales" value="428000" min="0" placeholder="예: 580000" oninput="recalcPayroll()"/>
+              <span class="hint">입력 시 인건비 비중 표시</span>
+            </div>
+          </div>
+        </div>
+        <div class="payroll-highlight">
+          <div style="font-size:12px;font-weight:500;color:#185FA5;margin-bottom:8px;">선택 직원 — 월별 산출 미리보기</div>
+          <div class="payroll-row"><span>기본급 (실근무×시급)</span><span id="pr-base">—</span></div>
+          <div class="payroll-row"><span>주휴수당 (단순 모델)</span><span id="pr-weekly">—</span></div>
+          <div class="payroll-row"><span>야간수당 (가산 50% 가정)</span><span id="pr-night">—</span></div>
+          <div class="payroll-row"><span>수당 합계</span><span id="pr-allow">—</span></div>
+          <div class="payroll-row total"><span>지급 예정액</span><span id="pr-total">—</span></div>
+          <p class="hint-inline" id="pr-hint"></p>
+        </div>
+        <div class="card">
+          <div class="card-title">근거 요약</div>
+          <ul style="font-size:13px;color:#5f5e5a;line-height:1.55;padding-left:18px;margin:0;">
+            <li><strong>연동</strong>: <code style="font-size:11px">staff.hourly_rate</code> + 월별 근무 시간(<code style="font-size:11px">WORK_MONTH</code> 데모) + 출퇴근 탭과 동일 직원 ID</li>
+            <li>주휴: 해당 월 총 근무 ≥ 60시간이면 주휴 1일분(8h×시급)을 한 번 가산하는 <strong>프로토타입 규칙</strong>입니다.</li>
+            <li>야간: 월 야간 시간 × 시급 × 0.5 (가산분만 표시).</li>
+          </ul>
+        </div>
+      </div>
+
+    </div><!-- /main-area -->
+
+    <!-- 레시피 등록 폼 (별도 레이아웃) -->
+    <div class="body-inner" id="recipe-form-area" style="display:none;">
+      <div class="form-area">
+
+        <div class="section">
+          <div class="sec-title">기본 정보 <span class="sec-badge">필수</span></div>
+          <div class="form-row">
+            <div class="form-group"><label class="label label-req">플레이버명</label><input type="text" id="fname" placeholder="예: 피스타치오 젤라또" oninput="updateCostPanel()"/></div>
+            <div class="form-group"><label class="label label-req">베이스 종류</label><select><option value="">선택하세요</option><option>우유 베이스</option><option>과일 베이스 (소르베)</option><option>크림 베이스</option><option>요거트 베이스</option></select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="label label-req">1통 목표 용량 (g)</label><input type="number" id="tub-g2" value="2500" oninput="updateCostPanel()"/><span class="hint">완성 배치 기준 총 중량</span></div>
+            <div class="form-group"><label class="label">카테고리</label><div class="tag-row"><span class="tag sel" onclick="this.classList.toggle('sel')">기본</span><span class="tag" onclick="this.classList.toggle('sel')">베스트</span><span class="tag" onclick="this.classList.toggle('sel')">시즌</span><span class="tag" onclick="this.classList.toggle('sel')">신메뉴</span></div></div>
+          </div>
+          <div class="form-full"><label class="label">메모 / 특이사항</label><textarea placeholder="맛의 특징, 알레르기 정보 등"></textarea></div>
+        </div>
+
+        <div class="section">
+          <div class="sec-title">재료 배합표 <span class="sec-badge">필수</span></div>
+          <div class="ing-header"><span>재료명</span><span>사용량</span><span>단가 (원/단위)</span><span style="text-align:right">배합 비율</span><span></span></div>
+          <div id="ing-list"></div>
+          <button class="add-btn" onclick="addIngredient()">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#1D9E75" stroke-width="1.2"/><path d="M7 4v6M4 7h6" stroke="#1D9E75" stroke-width="1.2" stroke-linecap="round"/></svg>
+            재료 추가
+          </button>
+        </div>
+
+        <div class="section">
+          <div class="sec-title">제조 순서 <span style="font-size:11px;color:#9a9a94;font-weight:400">선택</span></div>
+          <div class="step-list" id="step-list"></div>
+          <button class="add-btn" onclick="addStep()">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#1D9E75" stroke-width="1.2"/><path d="M7 4v6M4 7h6" stroke="#1D9E75" stroke-width="1.2" stroke-linecap="round"/></svg>
+            단계 추가
+          </button>
+        </div>
+
+        <div class="section">
+          <div class="sec-title">메뉴판 등록 설정</div>
+          <div class="form-row">
+            <div class="form-group"><label class="label">초기 상태</label><select><option>판매중 (active)</option><option>시즌 (season)</option><option>비공개</option></select></div>
+            <div class="form-group"><label class="label">메뉴판 즉시 등록</label><select><option>저장 후 바로 메뉴판에 추가</option><option>나중에 수동으로 추가</option></select></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 원가 패널 -->
+      <div class="cost-panel">
+        <div class="cost-title">원가 실시간 계산</div>
+        <div class="cost-row-p"><span>총 재료비 (1통)</span><span class="cost-val" id="cp-total">—</span></div>
+        <div class="cost-row-p"><span>재료 수</span><span class="cost-val" id="cp-cnt">0가지</span></div>
+        <div class="cost-divider"></div>
+        <div style="font-size:12px;color:#5f5e5a;margin-bottom:6px;">판매 설정</div>
+        <div class="sell-input-row"><span>1통당 컵 수</span><input type="number" id="cups2" value="8" min="1" oninput="updateCostPanel()"/><span>컵</span></div>
+        <div class="sell-input-row"><span>컵 판매가</span><input type="number" id="sell2" value="6500" min="0" oninput="updateCostPanel()"/><span>원</span></div>
+        <div class="cost-divider"></div>
+        <div class="cost-row-p"><span>1통 원가</span><span class="cost-val" id="cp-tub">—</span></div>
+        <div class="cost-row-p"><span>1컵 원가</span><span class="cost-val" id="cp-cup">—</span></div>
+        <div id="rate-box" class="cost-rate-box good" style="display:none;">
+          <div class="rate-label" id="rate-label" style="color:#085041;">원가율</div>
+          <div class="rate-val" id="rate-val" style="color:#0F6E56;">—</div>
+        </div>
+        <div class="cost-divider"></div>
+        <div class="cost-title" style="margin-bottom:8px;">재료 구성 비율</div>
+        <div id="ing-bars"><div style="font-size:12px;color:#9a9a94;">재료를 추가하면 비율이 표시됩니다.</div></div>
+        <div style="margin-top:14px;font-size:11px;color:#9a9a94;line-height:1.5;">재료를 추가하면 원가가 자동 계산됩니다. 판매가와 컵 수를 조정해 목표 원가율을 맞춰보세요.</div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<script>
+const COLORS=['#1D9E75','#378ADD','#BA7517','#D4537E','#7F77DD','#639922','#D85A30','#888780'];
+let ings=[];
+let steps=[];
+
+const pageNames={recipes:'레시피 관리',flavors:'메뉴판',cost:'원가 계산기',production:'생산 기록',staff:'인력 관리',payroll:'급여 및 정산'};
+
+const DOW_KO=['일','월','화','수','목','금','토'];
+const SHIFT_LABEL={open:'오픈',middle:'미들',close:'마감'};
+const DEFAULT_EMPL_TYPES=[
+  {id:'manager',label:'매니저'},
+  {id:'staff',label:'직원'},
+  {id:'parttime',label:'아르바이트'}
+];
+let EXTRA_EMPL_TYPES=[{id:'intern',label:'인턴'}];
+const WEEK_SLOT_LABELS=['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00'];
+const WEEK_DAY_HEADERS=['월 27','화 28','수 29','목 30','금 1','토 2','일 3'];
+// WEEK_GRID: key = 'd_D_S' where D=dayIndex, S=slotIndex, value = array of staffIds
+let WEEK_GRID={};
+let MONTH_SHIFT={};
+let staffDetailEditingId=null;
+let detailCalCursor={y:2026,m:4};
+let detailCalMap={};
+
+const SAMPLE_PHOTO_SVG='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect fill="#e1f5ee" width="96" height="96" rx="16"/><text x="48" y="58" text-anchor="middle" fill="#0F6E56" font-family="system-ui" font-size="28" font-weight="600">?</text></svg>');
+
+function allEmplTypes(){return DEFAULT_EMPL_TYPES.concat(EXTRA_EMPL_TYPES);}
+
+function weekCellKey(d,slot){return 'w_'+d+'_'+slot;}
+
+function ymKey(y,m){return y+'-'+String(m).padStart(2,'0');}
+
+let STAFF=[
+  {id:'s1',name:'김지수',phone:'010-2341-8892',hourlyRate:9860,healthCert:'2026-08-12',employmentType:'parttime',hireDate:'2025-01-06',resumeFileName:'이력서_김지수_2025.pdf',healthFileName:'보건증_김지수_2025.jpg',photoDataUrl:SAMPLE_PHOTO_SVG,workRules:[{dow:1,shift:'middle'},{dow:2,shift:'middle'},{dow:3,shift:'close'}],calendar:{'2026-04':{1:'open',2:'middle',4:'middle',8:'close',11:'open',15:'middle',18:'close',22:'open',25:'middle',28:'close'}}},
+  {id:'s2',name:'이민준',phone:'010-5512-0034',hourlyRate:10030,healthCert:'2025-12-01',employmentType:'staff',hireDate:'2024-06-10',resumeFileName:'이민준_CV.docx',healthFileName:'(갱신 필요)',photoDataUrl:'',workRules:[{dow:2,shift:'middle'},{dow:3,shift:'middle'},{dow:5,shift:'open'}],calendar:{'2026-04':{3:'middle',5:'open',6:'close',9:'middle',12:'open',16:'middle',19:'close',23:'open',26:'middle',30:'close'}}},
+  {id:'s3',name:'박소연',phone:'010-9088-4412',hourlyRate:9860,healthCert:'2026-02-20',employmentType:'parttime',hireDate:'2025-03-01',resumeFileName:'박소연_지원서.pdf',healthFileName:'보건증_소연_2026.pdf',photoDataUrl:SAMPLE_PHOTO_SVG,workRules:[{dow:1,shift:'open'},{dow:4,shift:'close'},{dow:6,shift:'middle'}],calendar:{'2026-04':{2:'open',7:'middle',10:'close',14:'open',17:'middle',21:'close',24:'open',27:'middle'}}},
+  {id:'s4',name:'최하람',phone:'010-3300-7711',hourlyRate:9590,healthCert:'2026-11-05',employmentType:'manager',hireDate:'2023-11-01',resumeFileName:'— (사내 전환)',healthFileName:'보건증_최하람.pdf',photoDataUrl:'',workRules:[{dow:5,shift:'open'},{dow:6,shift:'middle'},{dow:0,shift:'close'}],calendar:{'2026-04':{1:'close',5:'open',6:'open',12:'middle',13:'middle',19:'open',20:'open',26:'close',27:'close'}}}
+];
+let WORK_MONTH=[
+  {staffId:'s1',ym:'2026-04',regularHours:72,nightHours:6},
+  {staffId:'s2',ym:'2026-04',regularHours:64,nightHours:2},
+  {staffId:'s3',ym:'2026-04',regularHours:48,nightHours:0},
+  {staffId:'s4',ym:'2026-04',regularHours:56,nightHours:4},
+  {staffId:'s1',ym:'2026-03',regularHours:60,nightHours:4},
+  {staffId:'s2',ym:'2026-03',regularHours:52,nightHours:0}
+];
+
+(function initWeekGridDemo(){
+  for(let d=0;d<7;d++)for(let s=0;s<WEEK_SLOT_LABELS.length;s++)WEEK_GRID[weekCellKey(d,s)]=[];
+  // Sample: slot 0=09:00, 1=10:00, 2=11:00, 3=12:00, 4=13:00, 5=14:00, 6=15:00, 7=16:00, 8=17:00, 9=18:00
+  function ws(d,s,...ids){WEEK_GRID[weekCellKey(d,s)]=ids;}
+  ws(0,1,'s1','s2');ws(0,2,'s1');ws(0,3,'s2');ws(0,5,'s3');
+  ws(1,2,'s3','s1');ws(1,4,'s4');ws(1,5,'s1');
+  ws(2,1,'s3');ws(2,3,'s2');ws(2,6,'s4');
+  ws(3,2,'s2','s3');ws(3,4,'s1');ws(3,7,'s4');
+  ws(4,3,'s4','s2');ws(4,5,'s1');
+  ws(5,2,'s1','s4');ws(5,4,'s3');
+  ws(6,1,'s2');ws(6,7,'s4');
+})();
+
+function seedMonthShiftDemo(){
+  const ym='2026-04';
+  STAFF.forEach(s=>{
+    for(let day=1;day<=30;day++){
+      const k=s.id+'|'+ym+'|'+day;
+      const fromCal=s.calendar&&s.calendar[ym]&&s.calendar[ym][day];
+      if(fromCal)MONTH_SHIFT[k]=fromCal;
+      else MONTH_SHIFT[k]=day%7===0||day%7===6?(day%2?'middle':'open'):(day%3===0?'close':day%3===1?'middle':'open');
+    }
+  });
+}
+seedMonthShiftDemo();
+
+let ATT_HISTORY=[
+  {staffId:'s1',date:'2026-04-26',in:'09:50',out:'18:10',hours:8.3},
+  {staffId:'s4',date:'2026-04-27',in:'08:05',out:'17:55',hours:9.8},
+  {staffId:'s3',date:'2026-04-27',in:'10:02',out:'18:00',hours:8},
+  {staffId:'s2',date:'2026-04-28',in:'14:00',out:'22:00',hours:8},
+  {staffId:'s1',date:'2026-04-28',in:'09:55',out:'18:05',hours:8.1},
+  {staffId:'s2',date:'2026-04-28',in:'13:58',out:'22:02',hours:8.1},
+  {staffId:'s3',date:'2026-04-28',in:'12:30',out:'20:30',hours:8},
+  {staffId:'s1',date:'2026-04-29',in:'09:48',out:'18:02',hours:8.2}
+];
+let TODAYS_OPEN={};
+const CHECKLIST_ITEMS={
+  open:['빙고·전시 온도 점검','POS·카드단말 부팅','전시 케이스 조명·샘플 준비'],
+  middle:['진열 보충','샘플 스푼 교체·소독','테이블·바닥 순회'],
+  close:['딥클린 존·설비 세척','현금·카드 정산','시재·알람·쇼케이스 소등']
+};
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+
+function employmentLabel(typeId){
+  const t=allEmplTypes().find(x=>x.id===typeId);
+  return t?t.label:String(typeId||'—');
+}
+
+function employmentBadgeClass(typeId){
+  if(typeId==='manager')return 'mgr';
+  if(typeId==='parttime')return 'pt';
+  return '';
+}
+
+function formatWorkRulesHTML(rules){
+  if(!rules||!rules.length)return '—';
+  return rules.map(r=>esc(DOW_KO[r.dow])+' '+esc(SHIFT_LABEL[r.shift]||r.shift)).join('<br>');
+}
+
+function setTopCta(pageId){
+  const cta=document.getElementById('top-cta');
+  if(!cta)return;
+  if(pageId==='staff'&&window.__staffDetailOpen){
+    cta.style.display='none';
+    return;
+  }
+  if(pageId==='recipes'){
+    cta.style.display='inline-block';
+    cta.textContent='+ 레시피 등록';
+    cta.onclick=function(){showRecipeForm();};
+  }else if(pageId==='staff'){
+    cta.style.display='inline-block';
+    cta.textContent='+ 직원 등록';
+    cta.onclick=function(){addStaffDemo();};
+  }else if(pageId==='payroll'){
+    cta.style.display='inline-block';
+    cta.textContent='명세서 미리보기';
+    cta.onclick=function(){openPayslipPreview();};
+  }else{
+    cta.style.display='none';
+  }
+}
+
+function staffTab(key,btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  else document.querySelector('.tab[data-staff-tab="'+key+'"]')?.classList.add('active');
+  const p=document.getElementById('staff-panel-'+key);
+  if(p)p.classList.add('active');
+}
+
+function renderStaffTable(){
+  const tb=document.getElementById('staff-table-body');
+  if(!tb)return;
+  tb.innerHTML=STAFF.map(s=>{
+    const bc=employmentBadgeClass(s.employmentType);
+    return `<tr>
+    <td><button type="button" class="name-link" onclick="openStaffDetail('${s.id}')">${esc(s.name)}</button></td>
+    <td>${esc(s.phone)}</td>
+    <td><span class="badge-type ${bc}">${esc(employmentLabel(s.employmentType))}</span></td>
+    <td class="workday-lines">${formatWorkRulesHTML(s.workRules)}</td>
+    <td><button type="button" class="link-action" onclick="goPayrollFromStaff('${s.id}')">급여 보기 →</button></td>
+  </tr>`;
+  }).join('');
+}
+
+function renderEmplSelect(selected){
+  const sel=document.getElementById('sd-empl');
+  if(!sel)return;
+  sel.innerHTML=allEmplTypes().map(t=>`<option value="${esc(t.id)}"${t.id===selected?' selected':''}>${esc(t.label)}</option>`).join('');
+}
+
+function addEmploymentType(){
+  const raw=document.getElementById('sd-empl-new')?.value?.trim();
+  if(!raw){alert('형태 이름을 입력해 주세요.');return;}
+  const id='custom_'+Date.now().toString(36);
+  EXTRA_EMPL_TYPES.push({id,label:raw});
+  document.getElementById('sd-empl-new').value='';
+  renderEmplSelect(id);
+}
+
+function openStaffDetail(id){
+  window.__staffDetailOpen=true;
+  staffDetailEditingId=id;
+  document.getElementById('staff-view-list')?.classList.remove('active');
+  document.getElementById('staff-view-detail')?.classList.add('active');
+  document.getElementById('staff-detail-mode-label').textContent=id?'편집':'신규';
+  document.getElementById('page-title').textContent='직원 상세';
+  if(id){
+    const s=STAFF.find(x=>x.id===id);
+    if(!s){alert('직원을 찾을 수 없습니다.');closeStaffDetail();return;}
+    document.getElementById('sd-name').value=s.name||'';
+    document.getElementById('sd-phone').value=s.phone||'';
+    document.getElementById('sd-hourly').value=s.hourlyRate||0;
+    document.getElementById('sd-health-exp').value=s.healthCert||'';
+    document.getElementById('sd-hire').value=s.hireDate||'';
+    document.getElementById('sd-resume-name').textContent=s.resumeFileName||'미첨부';
+    document.getElementById('sd-health-file-name').textContent=s.healthFileName||'미첨부';
+    const pv=document.getElementById('sd-photo-preview');
+    if(s.photoDataUrl){pv.src=s.photoDataUrl;pv.style.display='block';}
+    else{pv.removeAttribute('src');pv.style.display='none';}
+    renderEmplSelect(s.employmentType||'parttime');
+    renderWorkRuleEditor(s.workRules||[]);
+    const hd=s.hireDate?new Date(s.hireDate+'T12:00:00'):null;
+    detailCalCursor=hd?{y:hd.getFullYear(),m:hd.getMonth()+1}:{y:2026,m:4};
+    const ck=ymKey(detailCalCursor.y,detailCalCursor.m);
+    detailCalMap=Object.assign({},(s.calendar&&s.calendar[ck])||{});
+  }else{
+    document.getElementById('sd-name').value='';
+    document.getElementById('sd-phone').value='';
+    document.getElementById('sd-hourly').value='9860';
+    document.getElementById('sd-health-exp').value='';
+    document.getElementById('sd-hire').value='';
+    document.getElementById('sd-resume-name').textContent='미첨부';
+    document.getElementById('sd-health-file-name').textContent='미첨부';
+    const pv=document.getElementById('sd-photo-preview');
+    pv.removeAttribute('src');pv.style.display='none';
+    renderEmplSelect('parttime');
+    renderWorkRuleEditor([]);
+    detailCalCursor={y:2026,m:4};
+    detailCalMap={};
+  }
+  updateTenureLabel();
+  renderStaffDetailCal();
+  setTopCta('staff');
+}
+
+function closeStaffDetail(){
+  window.__staffDetailOpen=false;
+  staffDetailEditingId=null;
+  document.getElementById('staff-view-detail')?.classList.remove('active');
+  document.getElementById('staff-view-list')?.classList.add('active');
+  const cur=document.querySelector('.page.active');
+  const pid=cur?cur.id.replace('page-',''):'recipes';
+  document.getElementById('page-title').textContent=pageNames[pid]||'';
+  setTopCta(pid);
+}
+
+function updateTenureLabel(){
+  const el=document.getElementById('sd-tenure');
+  const hire=document.getElementById('sd-hire')?.value;
+  if(!el)return;
+  if(!hire){el.textContent='근무 기간: —';return;}
+  const a=new Date(hire+'T12:00:00');
+  const b=new Date();
+  let months=(b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth());
+  if(months<0)months=0;
+  const y=Math.floor(months/12),m=months%12;
+  el.textContent='근무 기간: 약 '+y+'년 '+m+'개월 (자동 계산)';
+}
+
+function renderWorkRuleEditor(rules){
+  const host=document.getElementById('sd-workrules');
+  if(!host)return;
+  const list=rules.length?rules:[{dow:1,shift:'middle'}];
+  host.innerHTML=list.map(r=>`<div class="workrule-row">
+    <select class="sd-wr-dow">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}"${Number(r.dow)===d?' selected':''}>${DOW_KO[d]}</option>`).join('')}</select>
+    <select class="sd-wr-shift">${['open','middle','close'].map(sh=>`<option value="${sh}"${r.shift===sh?' selected':''}>${SHIFT_LABEL[sh]}</option>`).join('')}</select>
+    <button type="button" class="btn btn-sm" onclick="this.closest('.workrule-row').remove();ensureWorkRuleRow();">삭제</button>
+  </div>`).join('');
+}
+
+function ensureWorkRuleRow(){
+  const host=document.getElementById('sd-workrules');
+  if(host&&!host.querySelector('.workrule-row'))addWorkRuleRow();
+}
+
+function addWorkRuleRow(){
+  const host=document.getElementById('sd-workrules');
+  if(!host)return;
+  host.insertAdjacentHTML('beforeend',`<div class="workrule-row">
+    <select class="sd-wr-dow">${[1,2,3,4,5,6,0].map(d=>`<option value="${d}"${d===1?' selected':''}>${DOW_KO[d]}</option>`).join('')}</select>
+    <select class="sd-wr-shift">${['open','middle','close'].map(sh=>`<option value="${sh}"${sh==='middle'?' selected':''}>${SHIFT_LABEL[sh]}</option>`).join('')}</select>
+    <button type="button" class="btn btn-sm" onclick="this.closest('.workrule-row').remove();ensureWorkRuleRow();">삭제</button>
+  </div>`);
+}
+
+function readWorkRulesFromForm(){
+  const host=document.getElementById('sd-workrules');
+  if(!host)return[];
+  return [...host.querySelectorAll('.workrule-row')].map(row=>({
+    dow:parseInt(row.querySelector('.sd-wr-dow').value,10),
+    shift:row.querySelector('.sd-wr-shift').value
+  }));
+}
+
+function shiftStaffCal(delta){
+  detailCalCursor.m+=delta;
+  if(detailCalCursor.m>12){detailCalCursor.m=1;detailCalCursor.y++;}
+  if(detailCalCursor.m<1){detailCalCursor.m=12;detailCalCursor.y--;}
+  const ck=ymKey(detailCalCursor.y,detailCalCursor.m);
+  const sid=staffDetailEditingId;
+  if(sid&&STAFF.some(s=>s.id===sid)){
+    const s=STAFF.find(x=>x.id===sid);
+    detailCalMap=Object.assign({},(s.calendar&&s.calendar[ck])||{});
+  }else{
+    detailCalMap={};
+  }
+  renderStaffDetailCal();
+}
+
+function renderStaffDetailCal(){
+  const y=detailCalCursor.y,m=detailCalCursor.m;
+  document.getElementById('sd-cal-label').textContent=y+'년 '+m+'월';
+  const first=new Date(y,m-1,1);
+  const startPad=first.getDay()===0?6:first.getDay()-1;
+  const dim=new Date(y,m,0).getDate();
+  const head=document.getElementById('sd-cal-head');
+  const body=document.getElementById('sd-cal-body');
+  if(!head||!body)return;
+  head.innerHTML=['월','화','수','목','금','토','일'].map(d=>`<div class="hd">${d}</div>`).join('');
+  let cells='';
+  for(let i=0;i<startPad;i++)cells+='<div class="cell muted"></div>';
+  for(let day=1;day<=dim;day++){
+    const st=detailCalMap[day]||'';
+    const cls=st?(' '+st):'';
+    cells+=`<div class="cell${cls}" role="button" tabindex="0" data-day="${day}" onclick="toggleStaffCalDay(${day})">${day}</div>`;
+  }
+  let total=startPad+dim;
+  while(total%7!==0){cells+='<div class="cell muted"></div>';total++;}
+  body.innerHTML=cells;
+}
+
+function toggleStaffCalDay(day){
+  const order=['','open','middle','close'];
+  const cur=detailCalMap[day]||'';
+  const ix=order.indexOf(cur);
+  detailCalMap[day]=order[(ix+1)%order.length];
+  renderStaffDetailCal();
+}
+
+function onStaffPhoto(inp){
+  const f=inp.files&&inp.files[0];
+  const pv=document.getElementById('sd-photo-preview');
+  if(!f||!pv)return;
+  const r=new FileReader();
+  r.onload=function(){pv.src=r.result;pv.style.display='block';};
+  r.readAsDataURL(f);
+}
+
+function onStaffFileName(inp,kind){
+  const f=inp.files&&inp.files[0];
+  const span=document.getElementById(kind==='resume'?'sd-resume-name':'sd-health-file-name');
+  if(span)span.textContent=f?f.name:'미첨부';
+}
+
+function saveStaffDetail(){
+  const name=document.getElementById('sd-name').value.trim();
+  if(!name){alert('이름은 필수입니다.');return;}
+  const ck=ymKey(detailCalCursor.y,detailCalCursor.m);
+  const photo=document.getElementById('sd-photo-preview');
+  const payload={
+    name,
+    phone:document.getElementById('sd-phone').value.trim(),
+    hourlyRate:parseInt(document.getElementById('sd-hourly').value,10)||0,
+    healthCert:document.getElementById('sd-health-exp').value||'',
+    employmentType:document.getElementById('sd-empl').value,
+    hireDate:document.getElementById('sd-hire').value||'',
+    resumeFileName:document.getElementById('sd-resume-name').textContent==='미첨부'?'':document.getElementById('sd-resume-name').textContent,
+    healthFileName:document.getElementById('sd-health-file-name').textContent==='미첨부'?'':document.getElementById('sd-health-file-name').textContent,
+    photoDataUrl:(photo&&photo.style.display!=='none'&&photo.src)?photo.src:'',
+    workRules:readWorkRulesFromForm()
+  };
+  let id=staffDetailEditingId;
+  const isNew=!id||!STAFF.some(s=>s.id===id);
+  if(isNew){
+    id='s'+Date.now().toString(36);
+    const s=Object.assign({id,calendar:{}},payload);
+    s.calendar[ck]=Object.assign({},detailCalMap);
+    STAFF.push(s);
+    WORK_MONTH.push({staffId:id,ym:document.getElementById('payroll-month')?.value||'2026-04',regularHours:0,nightHours:0});
+  }else{
+    const s=STAFF.find(x=>x.id===id);
+    Object.assign(s,payload);
+    if(!s.calendar)s.calendar={};
+    s.calendar[ck]=Object.assign({},detailCalMap);
+  }
+  alert('저장되었습니다. (데모: 메모리만 갱신)');
+  closeStaffDetail();
+  renderStaffTable();
+  renderWeekVerticalGrid();
+  renderMonthShiftTable();
+  syncPayrollStaffOptions();
+  refreshStaffStats();
+}
+
+function goPayrollFromDetail(){
+  const id=staffDetailEditingId;
+  if(!id||!STAFF.some(s=>s.id===id)){alert('먼저 저장해 직원 ID를 발급해 주세요.');return;}
+  goPayrollFromStaff(id);
+}
+
+// ── 주간 근무표: 드래그 다중선택 ──────────────────────────────────
+let weekDragState=null; // {day, startSlot, painting, staffId}
+let weekActiveStaff=''; // 현재 선택된 근무자 ID
+
+function weekCellId(d,s){return 'wc_'+d+'_'+s;}
+
+function renderWeekVerticalGrid(){
+  const t=document.getElementById('week-vertical-table');
+  if(!t)return;
+  const staffBar=document.getElementById('week-staff-bar');
+  if(staffBar){
+    staffBar.innerHTML='<span style="font-size:12px;color:#5f5e5a;margin-right:8px;">근무자 선택:</span>'+
+      STAFF.map(s=>'<button type="button" class="week-staff-btn'+(weekActiveStaff===s.id?' sel':'')+'" onclick="selectWeekStaff(\''+s.id+'\')">'+esc(s.name)+'</button>').join('')+
+      '<button type="button" class="week-staff-btn erase'+(weekActiveStaff==='erase'?' sel':'')+'" onclick="selectWeekStaff(\'erase\')">지우기</button>';
+  }
+  let html='<thead><tr><th class="time-col">시간</th>';
+  for(let d=0;d<7;d++)html+='<th>'+WEEK_DAY_HEADERS[d]+'</th>';
+  html+='</tr></thead><tbody>';
+  for(let s=0;s<WEEK_SLOT_LABELS.length;s++){
+    html+='<tr><th class="time-col">'+WEEK_SLOT_LABELS[s]+'</th>';
+    for(let d=0;d<7;d++){
+      const ids=WEEK_GRID[weekCellKey(d,s)]||[];
+      const chips=ids.map(id=>{
+        const name=(STAFF.find(x=>x.id===id)||{}).name||id;
+        return `<span class="week-chip" data-sid="${esc(id)}">${esc(name)}</span>`;
+      }).join('');
+      html+=`<td id="${weekCellId(d,s)}" class="wk-cell${ids.length?' filled':''}"
+        onmousedown="weekDragStart(event,${d},${s})"
+        onmousemove="weekDragMove(event,${d},${s})"
+        onmouseup="weekDragEnd()"
+        ontouchstart="weekTouchStart(event,${d},${s})"
+        ontouchmove="weekTouchMove(event)"
+        ontouchend="weekDragEnd()"
+        >${chips}</td>`;
+    }
+    html+='</tr>';
+  }
+  html+='</tbody>';
+  t.innerHTML=html;
+  t.addEventListener('mouseleave',weekDragEnd);
+}
+
+function selectWeekStaff(id){
+  weekActiveStaff=id;
+  const staffBar=document.getElementById('week-staff-bar');
+  if(staffBar){
+    staffBar.innerHTML='<span style="font-size:12px;color:#5f5e5a;margin-right:8px;">근무자 선택:</span>'+
+      STAFF.map(s=>'<button type="button" class="week-staff-btn'+(weekActiveStaff===s.id?' sel':'')+'" onclick="selectWeekStaff(\''+s.id+'\')">'+esc(s.name)+'</button>').join('')+
+      '<button type="button" class="week-staff-btn erase'+(weekActiveStaff==='erase'?' sel':'')+'" onclick="selectWeekStaff(\'erase\')">지우기</button>';
+  }
+}
+
+function applyWeekCell(d,s){
+  if(!weekActiveStaff)return;
+  const k=weekCellKey(d,s);
+  if(weekActiveStaff==='erase'){
+    WEEK_GRID[k]=[];
+  }else{
+    let arr=WEEK_GRID[k]||[];
+    if(!arr.includes(weekActiveStaff)){arr=[...arr,weekActiveStaff];}
+    WEEK_GRID[k]=arr;
+  }
+  // update cell in place
+  const cell=document.getElementById(weekCellId(d,s));
+  if(cell){
+    const ids=WEEK_GRID[k]||[];
+    cell.classList.toggle('filled',ids.length>0);
+    cell.innerHTML=ids.map(id=>{
+      const name=(STAFF.find(x=>x.id===id)||{}).name||id;
+      return `<span class="week-chip" data-sid="${esc(id)}">${esc(name)}</span>`;
+    }).join('');
+  }
+}
+
+function weekDragStart(e,d,s){
+  if(!weekActiveStaff){alert('먼저 근무자를 선택해 주세요.');return;}
+  weekDragState={active:true,day:d};
+  applyWeekCell(d,s);
+  e.preventDefault();
+}
+function weekDragMove(e,d,s){
+  if(!weekDragState||!weekDragState.active)return;
+  if(weekDragState.day!==d)return; // 같은 열(요일)만 드래그
+  applyWeekCell(d,s);
+}
+function weekDragEnd(){weekDragState=null;}
+
+function weekTouchStart(e,d,s){
+  if(!weekActiveStaff){alert('먼저 근무자를 선택해 주세요.');return;}
+  weekDragState={active:true,day:d};
+  applyWeekCell(d,s);
+}
+function weekTouchMove(e){
+  if(!weekDragState||!weekDragState.active)return;
+  const touch=e.touches[0];
+  const el=document.elementFromPoint(touch.clientX,touch.clientY);
+  if(!el)return;
+  const cell=el.closest('[id^="wc_"]');
+  if(!cell)return;
+  const [,ds,ss]=cell.id.split('_');
+  const d=parseInt(ds),s=parseInt(ss);
+  if(weekDragState.day!==d)return;
+  applyWeekCell(d,s);
+}
+
+function setWeekGrid(d,s,val){
+  // legacy shim — not used with new drag UI
+  WEEK_GRID[weekCellKey(d,s)]=val?[val]:[];
+}
+
+function scheduleSubTab(which,btn){
+  document.getElementById('sch-tab-week').classList.toggle('sel',which==='week');
+  document.getElementById('sch-tab-month').classList.toggle('sel',which==='month');
+  document.getElementById('schedule-panel-week').classList.toggle('active',which==='week');
+  document.getElementById('schedule-panel-month').classList.toggle('active',which==='month');
+}
+
+function setMonthShift(key,val){MONTH_SHIFT[key]=val;}
+
+// 월간 근무표: 달력 형태, 근무자 뱃지 표시
+function renderMonthShiftTable(){
+  const ym=document.getElementById('month-shift-ym')?.value||'2026-04';
+  const [Y,M]=ym.split('-').map(Number);
+  const dim=new Date(Y,M,0).getDate();
+  const firstDow=new Date(Y,M-1,1).getDay(); // 0=일
+  const startPad=firstDow===0?6:firstDow-1; // 월요일 시작
+  const tbl=document.getElementById('month-shift-table');
+  if(!tbl)return;
+
+  // collect who works each day: day -> [staffId,...]
+  const dayWorkers={};
+  for(let day=1;day<=dim;day++){
+    dayWorkers[day]=[];
+    STAFF.forEach(s=>{
+      const k=s.id+'|'+ym+'|'+day;
+      if(MONTH_SHIFT[k])dayWorkers[day].push(s.id);
+    });
+  }
+
+  const DOW_HEADERS=['월','화','수','목','금','토','일'];
+  let html=`<tr>${DOW_HEADERS.map(h=>'<th style="width:14.28%;padding:6px 4px;background:#f1efe8;font-weight:500;color:#5f5e5a;">'+h+'</th>').join('')}</tr><tr>`;
+  let col=0;
+  for(let p=0;p<startPad;p++){html+='<td class="mcal-cell muted"></td>';col++;}
+  for(let day=1;day<=dim;day++){
+    const workers=dayWorkers[day]||[];
+    const isToday=new Date().toISOString().slice(0,10)===Y+'-'+String(M).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    const chips=workers.map(sid=>{
+      const s=STAFF.find(x=>x.id===sid);
+      const sh=MONTH_SHIFT[sid+'|'+ym+'|'+day]||'';
+      return `<span class="mcal-chip shift-${sh}" onmouseenter="showWorkerPopup(event,'${esc(sid)}','${ym}',${day})" onmouseleave="hideWorkerPopup()" onclick="openMonthModal('${ym}',${day})">${esc(s?s.name:'?')}</span>`;
+    }).join('');
+    const addBtn=`<button type="button" class="mcal-add-btn" onclick="openMonthModal('${ym}',${day})" title="${day}일 근무자 편집">+</button>`;
+    html+=`<td class="mcal-cell${isToday?' today':''}${workers.length?' has-workers':''}">
+      <div class="mcal-day-num${isToday?' today-num':''}">${day}</div>
+      <div class="mcal-workers">${chips}${addBtn}</div>
+    </td>`;
+    col++;
+    if(col%7===0&&day<dim)html+='</tr><tr>';
+  }
+  while(col%7!==0){html+='<td class="mcal-cell muted"></td>';col++;}
+  html+='</tr>';
+  tbl.innerHTML=html;
+}
+
+function todayStr(){return new Date().toISOString().slice(0,10);}
+
+function nowHM(){
+  const d=new Date();
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+
+function refreshStaffStats(){
+  const c=document.getElementById('staff-stat-count');
+  if(c)c.textContent=String(STAFF.length);
+  const ck=document.getElementById('staff-stat-checked');
+  if(ck){
+    const td=todayStr();
+    let n=0;
+    STAFF.forEach(s=>{
+      const o=TODAYS_OPEN[s.id];
+      if(o&&o.date===td&&o.in)n++;
+    });
+    ck.textContent=String(n);
+  }
+}
+
+function renderTA(){
+  const host=document.getElementById('ta-list');
+  if(!host)return;
+  const td=todayStr();
+  // 이전 기록 (최근 8건)
+  const hist=ATT_HISTORY.filter(a=>a.date!==td).slice(-8).reverse();
+  let html='<div style="font-size:12px;font-weight:500;color:#5f5e5a;margin-bottom:8px;">이전 기록 <span style="font-size:11px;color:#9a9a94;font-weight:400">(수기 수정 시 관리자 인증 필요)</span></div>';
+  html+=hist.map((a,i)=>{
+    const name=(STAFF.find(s=>s.id===a.staffId)||{}).name||a.staffId;
+    const realIdx=ATT_HISTORY.findIndex((x,j)=>x.staffId===a.staffId&&x.date===a.date&&x.in===a.in);
+    return `<div class="ta-row"><span class="ta-name">${esc(name)}</span><span class="ta-meta">${a.date} · ${a.in}–${a.out} · ${a.hours}h</span><div class="ta-btns"><span class="badge-muted">기록됨</span><button type="button" class="btn btn-sm" onclick="openAttEditModal(${realIdx},false,'${a.staffId}')">수정</button></div></div>`;
+  }).join('');
+  html+='<div style="font-size:12px;font-weight:500;color:#5f5e5a;margin:14px 0 8px">오늘 ('+td+')</div>';
+  STAFF.forEach(s=>{
+    const o=TODAYS_OPEN[s.id];
+    const done=o&&o.date===td&&o.in&&o.out;
+    const open=o&&o.date===td&&o.in&&!o.out;
+    let btns='';
+    if(!o||o.date!==td||!o.in){
+      btns=`<button type="button" class="btn btn-primary btn-sm" onclick="taCheckIn('${s.id}')">출근 체크</button>
+            <button type="button" class="btn btn-sm" onclick="openAttEditModal(-1,true,'${s.id}')">수기 입력</button>`;
+    }
+    if(open){
+      btns=`<button type="button" class="btn btn-sm" onclick="taCheckOut('${s.id}')">퇴근 체크</button>
+            <button type="button" class="btn btn-sm" onclick="openAttEditModal(-1,true,'${s.id}')">수정</button>`;
+    }
+    if(done){
+      btns=`<span class="badge-ok" style="padding:4px 10px;border-radius:20px;font-size:11px">완료 ${esc(o.in)}–${esc(o.out)}</span>
+            <button type="button" class="btn btn-sm" onclick="openAttEditModal(-1,true,'${s.id}')">수정</button>`;
+    }
+    html+=`<div class="ta-row"><span class="ta-name">${esc(s.name)}</span><span class="ta-meta">데모 기록 (실서비스: GPS·관리자승인)</span><div class="ta-btns">${btns}</div></div>`;
+  });
+  host.innerHTML=html;
+  refreshStaffStats();
+}
+
+function taCheckIn(sid){
+  const td=todayStr();
+  const ex=TODAYS_OPEN[sid];
+  if(ex&&ex.date===td){
+    if(ex.out)return;
+    return;
+  }
+  TODAYS_OPEN[sid]={date:td,in:nowHM(),out:null};
+  renderTA();
+}
+
+function taCheckOut(sid){
+  const o=TODAYS_OPEN[sid];
+  if(!o||!o.in||o.out)return;
+  o.out=nowHM();
+  const [sh,sm]=o.in.split(':').map(Number);
+  const [eh,em]=o.out.split(':').map(Number);
+  const hours=Math.max(0,Math.round(((eh*60+em)-(sh*60+sm))/60*10)/10);
+  ATT_HISTORY.push({staffId:sid,date:o.date,in:o.in,out:o.out,hours});
+  const ym=o.date.slice(0,7);
+  const wm=WORK_MONTH.find(w=>w.staffId===sid&&w.ym===ym);
+  if(wm)wm.regularHours=Math.round((wm.regularHours||0)+hours);
+  else WORK_MONTH.push({staffId:sid,ym,regularHours:hours,nightHours:0});
+  renderTA();
+  recalcPayroll();
+}
+
+function syncPayrollStaffOptions(){
+  const sel=document.getElementById('payroll-staff');
+  const chk=document.getElementById('chk-staff');
+  const opts=STAFF.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  if(sel){
+    const cur=sel.value;
+    sel.innerHTML=opts;
+    if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+    else if(sel.options[0])sel.selectedIndex=0;
+  }
+  if(chk){
+    chk.innerHTML=opts;
+  }
+}
+
+function workRow(staffId,ym){return WORK_MONTH.find(w=>w.staffId===staffId&&w.ym===ym);}
+
+function payrollForStaff(staffId,ym){
+  const s=STAFF.find(x=>x.id===staffId);
+  const wm=workRow(staffId,ym)||{regularHours:0,nightHours:0};
+  if(!s)return null;
+  const ov=document.getElementById('payroll-night-override');
+  const nightH=ov&&ov.value!==''?parseFloat(ov.value):wm.nightHours;
+  const base=Math.round(wm.regularHours*s.hourlyRate);
+  const weekly=wm.regularHours>=60?Math.round(8*s.hourlyRate):0;
+  const nightPay=Math.round((nightH||0)*s.hourlyRate*0.5);
+  const allow=weekly+nightPay;
+  const total=base+allow;
+  return{staff:s,wm,base,weekly,nightH:nightH||0,nightPay,allow,total};
+}
+
+function sumMonthPayroll(ym){
+  return STAFF.reduce((acc,s)=>{
+    const wm=workRow(s.id,ym)||{regularHours:0,nightHours:0};
+    const nightH=wm.nightHours;
+    const base=Math.round(wm.regularHours*s.hourlyRate);
+    const weekly=wm.regularHours>=60?Math.round(8*s.hourlyRate):0;
+    const nightPay=Math.round(nightH*s.hourlyRate*0.5);
+    return acc+base+weekly+nightPay;
+  },0);
+}
+
+function recalcPayroll(){
+  const ymEl=document.getElementById('payroll-month');
+  const staffEl=document.getElementById('payroll-staff');
+  const ym=ymEl?ymEl.value:'2026-04';
+  const sid=staffEl?staffEl.value:(STAFF[0]&&STAFF[0].id);
+  const st=document.getElementById('payroll-stat-ym');
+  if(st)st.textContent=ym;
+  const tot=document.getElementById('payroll-stat-total');
+  if(tot)tot.textContent=sumMonthPayroll(ym).toLocaleString()+'원';
+  const p=payrollForStaff(sid,ym);
+  const set=(id,v)=>{const n=document.getElementById(id);if(n)n.textContent=v;};
+  if(!p){
+    set('pr-base','—');set('pr-weekly','—');set('pr-night','—');set('pr-allow','—');set('pr-total','—');
+    return;
+  }
+  set('pr-base',p.base.toLocaleString()+'원');
+  set('pr-weekly',p.weekly>0?p.weekly.toLocaleString()+'원':'0원 (월 60h 미만)');
+  set('pr-night',p.nightPay.toLocaleString()+'원 ('+p.nightH+'h)');
+  set('pr-allow',p.allow.toLocaleString()+'원');
+  set('pr-total',p.total.toLocaleString()+'원');
+  const salesEl=document.getElementById('payroll-sales');
+  const hint=document.getElementById('pr-hint');
+  if(hint&&salesEl&&salesEl.value){
+    const sales=parseFloat(salesEl.value)||0;
+    if(sales>0){
+      const ratio=((p.total/sales)*100).toFixed(1);
+      hint.textContent='당일 매출 대비 선택 직원 인건비 비중(참고): 약 '+ratio+'% (월 누적이 아닌 선택 직원 1인 기준 데모)';
+    }else hint.textContent='';
+  }else if(hint)hint.textContent='';
+}
+
+function goPayrollFromStaff(staffId){
+  showPage('payroll',document.getElementById('nav-payroll'));
+  const sel=document.getElementById('payroll-staff');
+  if(sel&&[...sel.options].some(o=>o.value===staffId))sel.value=staffId;
+  recalcPayroll();
+}
+
+function addStaffDemo(){
+  showPage('staff',document.getElementById('nav-staff'));
+  staffTab('profile',document.querySelector('.tab[data-staff-tab="profile"]'));
+  openStaffDetail(null);
+}
+
+function openPayslipPreview(){
+  const ym=document.getElementById('payroll-month')?.value||'2026-04';
+  const sid=document.getElementById('payroll-staff')?.value;
+  const p=payrollForStaff(sid,ym);
+  if(!p){alert('직원을 선택해 주세요.');return;}
+  const lines=[
+    '=== 급여 명세 (미리보기) ===',
+    '매장: Gelato OS (데모)',
+    '정산월: '+ym,
+    '성명: '+p.staff.name,
+    '시급: '+p.staff.hourlyRate.toLocaleString()+'원',
+    '기본급: '+p.base.toLocaleString()+'원',
+    '주휴수당: '+p.weekly.toLocaleString()+'원',
+    '야간수당: '+p.nightPay.toLocaleString()+'원',
+    '지급 예정액: '+p.total.toLocaleString()+'원',
+    '',
+    '※ 법정 계산식은 별도 검증이 필요합니다. PDF/이미지 출력은 추후 구현.'
+  ];
+  alert(lines.join('\n'));
+}
+
+function renderChecklist(){
+  const shift=document.getElementById('chk-shift')?.value||'open';
+  const staffId=document.getElementById('chk-staff')?.value||STAFF[0]?.id;
+  const items=CHECKLIST_ITEMS[shift]||[];
+  const name=(STAFF.find(s=>s.id===staffId)||{}).name||'';
+  const host=document.getElementById('chk-list');
+  if(!host)return;
+  host.innerHTML=items.map((t,i)=>`<div class="chk-item">
+    <input type="checkbox" id="chk-${shift}-${i}" data-shift="${esc(shift)}"/>
+    <label for="chk-${shift}-${i}">${esc(t)} <span style="color:#9a9a94;font-size:11px">· ${esc(name)}</span></label>
+  </div>`).join('');
+}
+
+// ── 월간 근무표 모달 ────────────────────────────────────────────
+function openMonthModal(ym,day){
+  const modal=document.getElementById('month-modal');
+  if(!modal)return;
+  document.getElementById('mm-title').textContent=ym.replace('-','년 ')+'월 '+day+'일 근무 배정';
+  document.getElementById('mm-ym').value=ym;
+  document.getElementById('mm-day').value=day;
+  const list=document.getElementById('mm-staff-list');
+  list.innerHTML=STAFF.map(s=>{
+    const k=s.id+'|'+ym+'|'+day;
+    const cur=MONTH_SHIFT[k]||'';
+    return `<div class="mm-row">
+      <span class="mm-name">${esc(s.name)}</span>
+      <select class="mm-shift-sel" data-sid="${esc(s.id)}">
+        <option value=""${!cur?' selected':''}>미근무</option>
+        <option value="open"${cur==='open'?' selected':''}>오픈</option>
+        <option value="middle"${cur==='middle'?' selected':''}>미들</option>
+        <option value="close"${cur==='close'?' selected':''}>마감</option>
+      </select>
+    </div>`;
+  }).join('');
+  modal.classList.add('open');
+}
+
+function saveMonthModal(){
+  const modal=document.getElementById('month-modal');
+  const ym=document.getElementById('mm-ym').value;
+  const day=parseInt(document.getElementById('mm-day').value,10);
+  modal.querySelectorAll('.mm-shift-sel').forEach(sel=>{
+    const sid=sel.dataset.sid;
+    const k=sid+'|'+ym+'|'+day;
+    if(sel.value)MONTH_SHIFT[k]=sel.value;
+    else delete MONTH_SHIFT[k];
+    // 직원 calendar에도 반영
+    const s=STAFF.find(x=>x.id===sid);
+    if(s){
+      if(!s.calendar)s.calendar={};
+      if(!s.calendar[ym])s.calendar[ym]={};
+      if(sel.value)s.calendar[ym][day]=sel.value;
+      else delete s.calendar[ym][day];
+    }
+  });
+  modal.classList.remove('open');
+  renderMonthShiftTable();
+  // 직원 상세 달력이 열려있으면 갱신
+  if(window.__staffDetailOpen)renderStaffDetailCal();
+}
+
+function closeMonthModal(){
+  document.getElementById('month-modal')?.classList.remove('open');
+}
+
+// 호버 팝업
+let workerPopupTimer=null;
+function showWorkerPopup(e,sid,ym,day){
+  clearTimeout(workerPopupTimer);
+  const s=STAFF.find(x=>x.id===sid);
+  const k=sid+'|'+ym+'|'+day;
+  const sh=MONTH_SHIFT[k]||'';
+  const pop=document.getElementById('worker-popup');
+  if(!pop||!s)return;
+  // find actual attendance for that date
+  const dateStr=ym+'-'+String(day).padStart(2,'0');
+  const att=ATT_HISTORY.find(a=>a.staffId===sid&&a.date===dateStr);
+  let timeInfo='예정: '+(SHIFT_LABEL[sh]||sh||'—');
+  if(att)timeInfo+=`<br>실제: ${att.in}–${att.out} (${att.hours}h)`;
+  pop.innerHTML=`<strong>${esc(s.name)}</strong><br>${timeInfo}`;
+  pop.style.display='block';
+  const r=e.target.getBoundingClientRect();
+  pop.style.left=(r.left+window.scrollX)+'px';
+  pop.style.top=(r.bottom+window.scrollY+4)+'px';
+}
+function hideWorkerPopup(){
+  workerPopupTimer=setTimeout(()=>{
+    const pop=document.getElementById('worker-popup');
+    if(pop)pop.style.display='none';
+  },200);
+}
+
+// ── 출퇴근 수기 수정 ─────────────────────────────────────────────
+function openAttEditModal(attIdx,isToday,sid){
+  const modal=document.getElementById('att-edit-modal');
+  if(!modal)return;
+  document.getElementById('att-edit-idx').value=String(attIdx);
+  document.getElementById('att-edit-today').value=isToday?'1':'0';
+  document.getElementById('att-edit-sid').value=sid||'';
+  let rec,name;
+  if(isToday){
+    const o=TODAYS_OPEN[sid];
+    rec={date:o?o.date:todayStr(),in:o?o.in:'',out:o?o.out||'':''};
+    name=(STAFF.find(s=>s.id===sid)||{}).name||sid;
+  }else{
+    rec=ATT_HISTORY[attIdx]||{};
+    name=(STAFF.find(s=>s.id===rec.staffId)||{}).name||rec.staffId;
+  }
+  document.getElementById('att-edit-name').textContent=name+' 근태 수정';
+  document.getElementById('att-edit-date').value=rec.date||'';
+  document.getElementById('att-edit-in').value=rec.in||'';
+  document.getElementById('att-edit-out').value=rec.out||'';
+  document.getElementById('att-edit-admin-section').style.display='none';
+  document.getElementById('att-edit-admin-code').value='';
+  document.getElementById('att-admin-verified').value='0';
+  modal.classList.add('open');
+}
+
+function requestAttEditAdmin(){
+  // 실서비스: 관리자에게 카카오톡/SMS 발송 후 인증번호 수신
+  // 프로토타입: 임시 코드 1234
+  alert('[데모] 관리자에게 인증번호가 발송되었습니다.\n(실서비스: 카카오톡/SMS 연동 예정)\n\n테스트 코드: 1234');
+  document.getElementById('att-edit-admin-section').style.display='block';
+}
+
+function verifyAttAdmin(){
+  const code=document.getElementById('att-edit-admin-code').value.trim();
+  if(code==='1234'){
+    document.getElementById('att-admin-verified').value='1';
+    document.getElementById('att-edit-admin-section').style.backgroundColor='#e1f5ee';
+    document.getElementById('att-edit-admin-code').disabled=true;
+    document.querySelector('#att-edit-admin-section .btn-primary').textContent='✓ 인증 완료';
+    alert('인증이 완료되었습니다. 이제 저장하세요.');
+  }else{
+    alert('인증번호가 올바르지 않습니다.');
+  }
+}
+
+function saveAttEdit(){
+  const verified=document.getElementById('att-admin-verified').value==='1';
+  if(!verified){alert('관리자 인증이 필요합니다.\n「관리자 인증 요청」을 먼저 눌러주세요.');return;}
+  const idx=parseInt(document.getElementById('att-edit-idx').value,10);
+  const isToday=document.getElementById('att-edit-today').value==='1';
+  const sid=document.getElementById('att-edit-sid').value;
+  const date=document.getElementById('att-edit-date').value;
+  const inT=document.getElementById('att-edit-in').value;
+  const outT=document.getElementById('att-edit-out').value;
+  if(!inT){alert('출근 시간을 입력해 주세요.');return;}
+  const calcHours=()=>{
+    if(!outT)return 0;
+    const [sh,sm]=inT.split(':').map(Number);
+    const [eh,em]=outT.split(':').map(Number);
+    return Math.max(0,Math.round(((eh*60+em)-(sh*60+sm))/60*10)/10);
+  };
+  if(isToday&&TODAYS_OPEN[sid]){
+    TODAYS_OPEN[sid].in=inT;
+    TODAYS_OPEN[sid].out=outT||null;
+    // also update/add ATT_HISTORY entry
+    const existing=ATT_HISTORY.find(a=>a.staffId===sid&&a.date===date);
+    if(existing&&outT){existing.in=inT;existing.out=outT;existing.hours=calcHours();}
+    else if(outT){ATT_HISTORY.push({staffId:sid,date,in:inT,out:outT,hours:calcHours()});}
+  }else if(!isNaN(idx)&&ATT_HISTORY[idx]){
+    ATT_HISTORY[idx].date=date;
+    ATT_HISTORY[idx].in=inT;
+    ATT_HISTORY[idx].out=outT;
+    ATT_HISTORY[idx].hours=calcHours();
+  }else{
+    // 새 기록 추가
+    ATT_HISTORY.push({staffId:sid,date,in:inT,out:outT,hours:calcHours()});
+  }
+  document.getElementById('att-edit-modal').classList.remove('open');
+  renderTA();
+  recalcPayroll();
+}
+
+function closeAttEditModal(){
+  document.getElementById('att-edit-modal')?.classList.remove('open');
+}
+
+// 자바스크립트 문법 오류 때문에 백틱 내 특수문자 처리
+var SHIFT_LABEL_OBJ={open:'오픈',middle:'미들',close:'마감'};
+
+function initStaffPayrollUI(){
+  renderStaffTable();
+  renderWeekVerticalGrid();
+  renderMonthShiftTable();
+  syncPayrollStaffOptions();
+  renderTA();
+  renderChecklist();
+  recalcPayroll();
+  refreshStaffStats();
+  if(!window.__sdHireBound){
+    window.__sdHireBound=true;
+    document.getElementById('sd-hire')?.addEventListener('change',updateTenureLabel);
+  }
+}
+
+function isMobileNav(){return window.matchMedia('(max-width:768px)').matches;}
+
+function setMobileNavOpen(open){
+  const sb=document.getElementById('sidebar');
+  const bd=document.getElementById('nav-backdrop');
+  const b1=document.getElementById('nav-menu-btn');
+  const b2=document.getElementById('nav-menu-btn-form');
+  sb.classList.toggle('open',open);
+  bd.classList.toggle('visible',open);
+  document.body.style.overflow=open?'hidden':'';
+  [b1,b2].forEach(b=>{if(b){b.setAttribute('aria-expanded',open?'true':'false');b.setAttribute('aria-label',open?'메뉴 닫기':'메뉴 열기');}});
+}
+
+function toggleMobileNav(){
+  if(!isMobileNav())return;
+  const sb=document.getElementById('sidebar');
+  setMobileNavOpen(!sb.classList.contains('open'));
+}
+
+function closeMobileNav(){
+  setMobileNavOpen(false);
+}
+
+window.addEventListener('resize',()=>{
+  if(!isMobileNav())closeMobileNav();
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(document.getElementById('month-modal')?.classList.contains('open')){closeMonthModal();return;}
+  if(document.getElementById('att-edit-modal')?.classList.contains('open')){closeAttEditModal();return;}
+  if(window.__staffDetailOpen){closeStaffDetail();return;}
+  closeMobileNav();
+});
+
+function showPage(id,el){
+  const pageEl=document.getElementById('page-'+id);
+  if(!pageEl||pageNames[id]===undefined)return;
+  if(id!=='staff'){
+    window.__staffDetailOpen=false;
+    staffDetailEditingId=null;
+    document.getElementById('staff-view-detail')?.classList.remove('active');
+    document.getElementById('staff-view-list')?.classList.add('active');
+  }
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>{if(!n.disabled)n.classList.remove('active');});
+  pageEl.classList.add('active');
+  const btn=el||[...document.querySelectorAll('.nav-item')].find(b=>!b.disabled&&b.getAttribute('onclick')&&b.getAttribute('onclick').includes("'"+id+"'"));
+  if(btn)btn.classList.add('active');
+  document.getElementById('page-title').textContent=pageNames[id];
+  closeRecipeForm();
+  closeMobileNav();
+}
+
+function showRecipeForm(){
+  document.getElementById('main-area').style.display='none';
+  document.getElementById('recipe-form-area').style.display='flex';
+  document.getElementById('topbar-default').style.display='none';
+  document.getElementById('topbar-form').style.display='flex';
+  if(ings.length===0){
+    addIngredient('우유',1500,1.2);
+    addIngredient('설탕',200,1.8);
+    addIngredient('피스타치오 페이스트',300,8.5);
+    addStep('우유와 설탕을 냄비에 넣고 60°C까지 가열한다');
+    addStep('피스타치오 페이스트를 넣고 균일하게 혼합한다');
+    addStep('혼합물을 5°C 이하로 냉각 후 배치 냉각기에 투입한다');
+    renderSteps();
+    updateCostPanel();
+  }
+}
+
+function closeRecipeForm(){
+  document.getElementById('main-area').style.display='block';
+  document.getElementById('recipe-form-area').style.display='none';
+  document.getElementById('topbar-default').style.display='flex';
+  document.getElementById('topbar-form').style.display='none';
+  const cur=document.querySelector('.page.active');
+  const pid=cur?cur.id.replace('page-',''):'recipes';
+  setTopCta(pid);
+}
+
+function handleSave(){
+  const name=document.getElementById('fname').value.trim();
+  if(!name){alert('플레이버명을 입력해 주세요.');return;}
+  if(ings.length===0){alert('재료를 1개 이상 추가해 주세요.');return;}
+  alert('레시피 "'+name+'" 저장 완료!\n실제 버전에서는 Supabase에 저장됩니다.');
+  closeRecipeForm();
+}
+
+function addIngredient(name='',amt=0,price=0){
+  ings.push({id:Date.now()+Math.random(),name,amt,price});
+  renderIngs();
+}
+
+function removeIngredient(id){
+  ings=ings.filter(i=>i.id!==id);
+  renderIngs();
+}
+
+function renderIngs(){
+  const list=document.getElementById('ing-list');
+  const total=ings.reduce((s,i)=>s+(parseFloat(i.amt)||0)*(parseFloat(i.price)||0),0);
+  list.innerHTML=ings.map((ing,idx)=>{
+    const sub=Math.round((parseFloat(ing.amt)||0)*(parseFloat(ing.price)||0));
+    const ratio=total>0?Math.round(sub/total*100):0;
+    return `<div class="ing-row">
+      <input type="text" placeholder="재료명" value="${ing.name}" oninput="updateIng(${ing.id},'name',this.value)"/>
+      <input type="number" placeholder="g/ml/개" value="${ing.amt||''}" oninput="updateIng(${ing.id},'amt',this.value)" style="text-align:right"/>
+      <input type="number" placeholder="단가" value="${ing.price||''}" oninput="updateIng(${ing.id},'price',this.value)" style="text-align:right"/>
+      <span class="ratio">${ratio}%</span>
+      <button class="ing-del" onclick="removeIngredient(${ing.id})">×</button>
+    </div>`;
+  }).join('');
+  updateCostPanel();
+}
+
+function updateIng(id,field,val){
+  const ing=ings.find(i=>i.id===id);
+  if(ing)ing[field]=val;
+  renderIngs();
+}
+
+function addStep(text=''){
+  steps.push({id:Date.now()+Math.random(),text});
+  renderSteps();
+}
+
+function removeStep(id){
+  steps=steps.filter(s=>s.id!==id);
+  renderSteps();
+}
+
+function renderSteps(){
+  const list=document.getElementById('step-list');
+  list.innerHTML=steps.map((s,i)=>`
+    <div class="step-row">
+      <div class="step-num">${i+1}</div>
+      <input type="text" placeholder="예: 우유와 설탕을 냄비에 넣고 60°C까지 가열한다" value="${s.text}" oninput="updateStep(${s.id},this.value)"/>
+      <button class="step-del" onclick="removeStep(${s.id})">×</button>
+    </div>`).join('');
+}
+
+function updateStep(id,val){
+  const s=steps.find(s=>s.id===id);
+  if(s)s.text=val;
+}
+
+function updateCostPanel(){
+  const total=ings.reduce((s,i)=>s+(parseFloat(i.amt)||0)*(parseFloat(i.price)||0),0);
+  const cups=parseInt(document.getElementById('cups2').value)||1;
+  const sell=parseInt(document.getElementById('sell2').value)||1;
+  const cupCost=total>0?Math.round(total/cups):0;
+  const rate=cupCost>0?((cupCost/sell)*100):0;
+  document.getElementById('cp-total').textContent=total>0?total.toLocaleString()+'원':'—';
+  document.getElementById('cp-cnt').textContent=ings.length+'가지';
+  document.getElementById('cp-tub').textContent=total>0?total.toLocaleString()+'원':'—';
+  document.getElementById('cp-cup').textContent=cupCost>0?cupCost.toLocaleString()+'원':'—';
+  const rateBox=document.getElementById('rate-box');
+  if(total>0){
+    rateBox.style.display='block';
+    const rv=document.getElementById('rate-val');
+    const rl=document.getElementById('rate-label');
+    rv.textContent=rate.toFixed(1)+'%';
+    if(rate<=25){rateBox.className='cost-rate-box good';rv.style.color='#0F6E56';rl.style.color='#085041';rl.textContent='양호한 원가율';}
+    else if(rate<=35){rateBox.className='cost-rate-box warn';rv.style.color='#854F0B';rl.style.color='#854F0B';rl.textContent='주의 — 원가율 높음';}
+    else{rateBox.className='cost-rate-box bad';rv.style.color='#A32D2D';rl.style.color='#A32D2D';rl.textContent='위험 — 원가율 초과';}
+  }else{rateBox.style.display='none';}
+  const barsEl=document.getElementById('ing-bars');
+  if(ings.length===0){barsEl.innerHTML='<div style="font-size:12px;color:#9a9a94;">재료를 추가하면 비율이 표시됩니다.</div>';return;}
+  barsEl.innerHTML=ings.map((ing,idx)=>{
+    const sub=(parseFloat(ing.amt)||0)*(parseFloat(ing.price)||0);
+    const pct=total>0?Math.round(sub/total*100):0;
+    return `<div>
+      <div class="ing-bar-label"><span style="color:#1a1a18">${ing.name||'재료 '+(idx+1)}</span><span>${pct}%</span></div>
+      <div class="ing-bar-track"><div class="ing-bar-fill" style="width:${pct}%;background:${COLORS[idx%COLORS.length]};"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function calcCost(){
+  const rows=document.querySelectorAll('#page-cost .cost-ing-row');
+  let total=0;
+  rows.forEach((row,i)=>{
+    const nums=row.querySelectorAll('input[type=number]');
+    const amt=parseFloat(nums[0]?.value)||0;
+    const price=parseFloat(nums[1]?.value)||0;
+    const sub=Math.round(amt*price);
+    total+=sub;
+    const el=document.getElementById('sub-'+i);
+    if(el)el.textContent=sub.toLocaleString();
+  });
+  const cups=parseInt(document.getElementById('cups').value,10)||1;
+  const sell=parseFloat(document.getElementById('sell-price').value)||1;
+  const cupCost=Math.round(total/cups);
+  const rate=sell>0?((cupCost/sell)*100).toFixed(1):'0.0';
+  document.getElementById('r-total').textContent=total.toLocaleString()+'원';
+  document.getElementById('r-cup').textContent=cupCost.toLocaleString()+'원';
+  document.getElementById('r-rate').textContent=rate+'%';
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  calcCost();
+  setTopCta('recipes');
+  initStaffPayrollUI();
+});
+</script>
+<!-- 월간 근무 배정 모달 -->
+<div class="modal-overlay" id="month-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="mm-title">근무 배정</div>
+    <input type="hidden" id="mm-ym"/><input type="hidden" id="mm-day"/>
+    <div id="mm-staff-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" onclick="saveMonthModal()">저장</button>
+      <button type="button" class="btn" onclick="closeMonthModal()">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- 출퇴근 수기 수정 모달 -->
+<div class="modal-overlay" id="att-edit-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="att-edit-name">근태 수정</div>
+    <input type="hidden" id="att-edit-idx"/>
+    <input type="hidden" id="att-edit-today"/>
+    <input type="hidden" id="att-edit-sid"/>
+    <input type="hidden" id="att-admin-verified" value="0"/>
+    <div class="att-edit-form">
+      <div><label>날짜</label><input type="date" id="att-edit-date"/></div>
+      <div><label>출근 시간</label><input type="time" id="att-edit-in"/></div>
+      <div><label>퇴근 시간</label><input type="time" id="att-edit-out"/></div>
+    </div>
+    <div class="att-admin-box" id="att-edit-admin-section" style="display:none;">
+      <div class="admin-hint">📱 관리자에게 발송된 인증번호를 입력해 주세요.<br>(실서비스: 카카오톡 / SMS 연동 예정)</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="att-edit-admin-code" placeholder="인증번호 4자리" style="max-width:140px;"/>
+        <button type="button" class="btn btn-primary btn-sm" onclick="verifyAttAdmin()">확인</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-sm" onclick="requestAttEditAdmin()">🔐 관리자 인증 요청</button>
+      <button type="button" class="btn btn-primary" onclick="saveAttEdit()">저장</button>
+      <button type="button" class="btn" onclick="closeAttEditModal()">취소</button>
+    </div>
+    <p style="font-size:11px;color:#9a9a94;margin-top:10px;line-height:1.45;">※ 수기 수정은 관리자 인증 후에만 저장됩니다. 실서비스에서는 카카오톡 또는 SMS로 OTP가 발송됩니다.</p>
+  </div>
+</div>
+
+<!-- 근무자 호버 팝업 -->
+<div id="worker-popup"></div>
+
+</body>
+</html>
