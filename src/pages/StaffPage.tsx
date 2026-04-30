@@ -63,10 +63,11 @@ import {
   useUpdateStaff,
 } from '@/hooks/useStaff'
 import type { WeekSlot } from '@/hooks/useWeekSchedule'
+import { fetchStaffWithDefaultShifts } from '@/hooks/useMonthSchedule'
 import {
   usePersistWeekDraft,
-  useApplyWeekFromProfileDefaults,
   useWeekSlots,
+  weekDraftFromProfileDefaults,
   fetchWeekSlots,
 } from '@/hooks/useWeekSchedule'
 
@@ -737,19 +738,21 @@ function StaffScheduleSection() {
     [weekStart],
   )
 
+  const { data: store } = useStoreQuery()
+  const storeId = store?.id
   const [pickStaff, setPickStaff] = useState<string>('')
   const { data: staffList } = useStaffList()
   const { data: shiftStoreSettings, refetch: refetchShiftSettings } =
     useShiftTimeSettings()
   const shiftSettings = shiftStoreSettings?.settings
 
-  const applyFromProfile = useApplyWeekFromProfileDefaults()
   const persistWeek = usePersistWeekDraft()
-  const { data: slots, refetch: refetchWeek } = useWeekSlots(weekStart)
+  const { data: slots } = useWeekSlots(weekStart)
   const genBase = useGenerateAttendanceBaseline()
 
   const weekDragRef = useRef<{ day: number } | null>(null)
   const [weekDraft, setWeekDraft] = useState<Record<string, string[]>>({})
+  const [applyProfileBusy, setApplyProfileBusy] = useState(false)
 
   useEffect(() => {
     setWeekDraft(buildWeekDraftFromSlots(slots))
@@ -958,10 +961,10 @@ function StaffScheduleSection() {
             <CardTitle className="text-base">주간 근무표</CardTitle>
             <CardDescription>
               근무자를 선택한 뒤 셀을 누르거나 같은 요일(열) 안에서 드래그하면 연속 슬롯에
-              배정합니다. «저장» 시 확인 후 반영되며, 저장된 표가 출퇴근 «예정» 시간과
-              연동됩니다. 시간대 행·이름 칩 색은 «근무관리» 오픈·미들·마감 구간과 같습니다.
-              «근무표 가져오기»는 각 직원 프로필의 근무요일·시프트를 근무관리 시간대로 풀어
-              이번 주에 채운 뒤, 기준 출퇴근 행을 생성합니다.
+              배정합니다. 칸을 바꾼 뒤 반드시 «저장»을 눌러야 서버에 반영되며, 그때 출퇴근
+              «예정»·기준 데이터와 연동됩니다. 시간대 행·이름 칩 색은 «근무관리» 오픈·미들·마감
+              구간과 같습니다. «근무표 가져오기»는 직원 프로필의 근무요일·시프트를 그리드
+              <strong> 초안에만</strong> 채웁니다(저장 전까지 DB에 올라가지 않음).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -976,79 +979,109 @@ function StaffScheduleSection() {
                 다음 주 ▶
               </Button>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="text-muted-foreground text-sm">근무자 선택</span>
-              <select
-                className="border-input h-9 max-w-[220px] rounded-lg border bg-background px-2 text-sm"
-                value={pickStaff}
-                onChange={(e) => setPickStaff(e.target.value)}
-              >
-                <option value="">선택…</option>
-                {staffList?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={
-                  applyFromProfile.isPending ||
-                  genBase.isPending ||
-                  !shiftSettings
-                }
-                onClick={() => {
-                  if (!shiftSettings) return
-                  void (async () => {
-                    try {
-                      const r = await applyFromProfile.mutateAsync({
-                        weekStart,
-                        settings: shiftSettings,
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="text-muted-foreground shrink-0 text-sm">
+                  근무자 선택
+                </span>
+                <span className="text-muted-foreground shrink-0 text-sm">:</span>
+                <select
+                  className="border-input h-9 max-w-[min(100%,280px)] min-w-[140px] rounded-lg border bg-background px-2 text-sm"
+                  value={pickStaff}
+                  onChange={(e) => setPickStaff(e.target.value)}
+                >
+                  <option value="">선택…</option>
+                  {staffList?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={
+                    applyProfileBusy ||
+                    genBase.isPending ||
+                    persistWeek.isPending ||
+                    !shiftSettings ||
+                    !storeId
+                  }
+                  onClick={() => {
+                    if (!shiftSettings || !storeId) return
+                    if (
+                      !window.confirm(
+                        '근무표가 초기화되며, 직원 프로필의 근무시프트대로 세팅합니다.',
+                      )
+                    )
+                      return
+                    setApplyProfileBusy(true)
+                    void (async () => {
+                      try {
+                        const staffRows = await fetchStaffWithDefaultShifts(storeId)
+                        const draft = weekDraftFromProfileDefaults(
+                          staffRows,
+                          shiftSettings,
+                        )
+                        setWeekDraft(draft)
+                        let placed = 0
+                        for (const ids of Object.values(draft)) placed += ids.length
+                        const withRules = staffRows.filter(
+                          (s) => s.shifts.length > 0,
+                        ).length
+                        window.alert(
+                          `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n슬롯 배정 ${placed}건 · 근무 규칙이 있는 직원 ${withRules}명`,
+                        )
+                      } catch (e) {
+                        window.alert(
+                          `처리에 실패했습니다. ${getPostgrestMessage(e)}`,
+                        )
+                      } finally {
+                        setApplyProfileBusy(false)
+                      }
+                    })()
+                  }}
+                >
+                  근무표 가져오기
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={persistWeek.isPending || genBase.isPending}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        '근무표를 저장하시겠습니까?\n\n저장한 내용은 출퇴근 기록의 예정 시간·기준 데이터와 연동됩니다.',
+                      )
+                    )
+                      return
+                    void persistWeek
+                      .mutateAsync({ weekStart, draft: weekDraft })
+                      .then(async () => {
+                        try {
+                          const n = await genBase.mutateAsync(weekStart)
+                          window.alert(
+                            `주간 근무표가 저장되었습니다. 출퇴근 기준 ${n}건 반영.`,
+                          )
+                        } catch (e) {
+                          window.alert(
+                            `근무표는 저장되었으나 출퇴근 기준 생성에 실패했습니다. ${getPostgrestMessage(e)}`,
+                          )
+                        }
                       })
-                      await refetchWeek()
-                      const n = await genBase.mutateAsync(weekStart)
-                      window.alert(
-                        `프로필 근무요일 반영: 슬롯 배정 ${r.placed}건 (근무 규칙이 있는 직원 ${r.staffWithRules}명 참고). 기준 출퇴근 ${n}건 생성.`,
+                      .catch((e) =>
+                        window.alert(
+                          `저장에 실패했습니다. ${getPostgrestMessage(e)}`,
+                        ),
                       )
-                    } catch (e) {
-                      window.alert(
-                        `처리에 실패했습니다. ${getPostgrestMessage(e)}`,
-                      )
-                    }
-                  })()
-                }}
-              >
-                근무표 가져오기
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={persistWeek.isPending}
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      '근무표를 저장하시겠습니까?\n\n저장한 내용은 출퇴근 기록의 예정 시간·기준 데이터와 연동됩니다.',
-                    )
-                  )
-                    return
-                  void persistWeek
-                    .mutateAsync({ weekStart, draft: weekDraft })
-                    .then(() =>
-                      window.alert('주간 근무표가 저장되었습니다.'),
-                    )
-                    .catch((e) =>
-                      window.alert(
-                        `저장에 실패했습니다. ${getPostgrestMessage(e)}`,
-                      ),
-                    )
-                }}
-              >
-                저장
-              </Button>
+                  }}
+                >
+                  저장
+                </Button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table

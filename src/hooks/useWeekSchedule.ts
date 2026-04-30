@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useStore } from '@/hooks/useStore'
-import { fetchStaffWithDefaultShifts } from '@/hooks/useMonthSchedule'
 import {
   profileDowToWeekDayIndex,
   slotIndicesForShiftWindow,
@@ -230,51 +229,31 @@ export function usePersistWeekDraft() {
   })
 }
 
+type ProfileStaffRow = {
+  id: string
+  shifts: { day_of_week: number; shift: 'open' | 'middle' | 'close' }[]
+}
+
 /**
- * 직원 프로필 `staff_default_shifts`(요일·시프트)를 근무관리 시간대로 풀어 해당 주 슬롯에 일괄 배정.
+ * DB 없이, 직원 프로필 `staff_default_shifts`를 근무관리 시간대 슬롯 키(`slotIndex_dayIndex`)로 풀어
+ * `persistWeekDraft`에 넣을 초안 맵을 만든다. «저장» 시에만 서버에 반영.
  */
-export function useApplyWeekFromProfileDefaults() {
-  const queryClient = useQueryClient()
-  const { data: store } = useStore()
-  const storeId = store?.id
-
-  return useMutation({
-    mutationFn: async (input: { weekStart: string; settings: ShiftTimeSettings }) => {
-      if (!storeId) throw new Error('매장 정보가 없습니다.')
-      const { weekStart, settings } = input
-      const staffRows = await fetchStaffWithDefaultShifts(storeId)
-
-      await deleteWeekAssigneesForWeek(storeId, weekStart)
-
-      let placed = 0
-      for (const s of staffRows) {
-        for (const row of s.shifts) {
-          const dayIdx = profileDowToWeekDayIndex(row.day_of_week)
-          const slotIdxs = slotIndicesForShiftWindow(row.shift, settings)
-          for (const slotIndex of slotIdxs) {
-            const slotId = await ensureWeekSlotId(
-              storeId,
-              weekStart,
-              slotIndex,
-              dayIdx,
-            )
-            const { error } = await supabase.from('schedule_week_slot_assignees').insert({
-              slot_id: slotId,
-              staff_id: s.id,
-            })
-            if (error?.code === '23505') continue
-            if (error) throw error
-            placed++
-          }
-        }
+export function weekDraftFromProfileDefaults(
+  staffRows: ProfileStaffRow[],
+  settings: ShiftTimeSettings,
+): Record<string, string[]> {
+  const d: Record<string, string[]> = {}
+  for (const s of staffRows) {
+    for (const row of s.shifts) {
+      const dayIdx = profileDowToWeekDayIndex(row.day_of_week)
+      const slotIdxs = slotIndicesForShiftWindow(row.shift, settings)
+      for (const slotIndex of slotIdxs) {
+        const k = `${slotIndex}_${dayIdx}`
+        const arr = [...(d[k] ?? [])]
+        if (!arr.includes(s.id)) arr.push(s.id)
+        d[k] = arr
       }
-
-      return { placed, staffWithRules: staffRows.length }
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['weekSchedule', storeId],
-      })
-    },
-  })
+    }
+  }
+  return d
 }
