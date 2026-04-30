@@ -73,6 +73,8 @@ export function useCreateIngredient() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ingredients', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipe'] })
     },
   })
 }
@@ -107,6 +109,8 @@ export function useUpdateIngredient() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ingredients', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipe'] })
     },
   })
 }
@@ -129,6 +133,8 @@ export function useDeleteIngredient() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ingredients', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', storeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipe'] })
     },
   })
 }

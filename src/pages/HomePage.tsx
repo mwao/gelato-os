@@ -22,6 +22,16 @@ export function HomePage() {
     await supabase.auth.signOut()
     queryClient.removeQueries({ queryKey: ['store'] })
     queryClient.removeQueries({ queryKey: ['ingredients'] })
+    queryClient.removeQueries({ queryKey: ['recipes'] })
+    queryClient.removeQueries({ queryKey: ['recipe'] })
+    queryClient.removeQueries({ queryKey: ['employmentTypes'] })
+    queryClient.removeQueries({ queryKey: ['staff'] })
+    queryClient.removeQueries({ queryKey: ['weekSchedule'] })
+    queryClient.removeQueries({ queryKey: ['monthSchedule'] })
+    queryClient.removeQueries({ queryKey: ['attendance'] })
+    queryClient.removeQueries({ queryKey: ['checklistItems'] })
+    queryClient.removeQueries({ queryKey: ['checklistLogsToday'] })
+    queryClient.removeQueries({ queryKey: ['staffCalendar'] })
     navigate('/login', { replace: true })
   }
 

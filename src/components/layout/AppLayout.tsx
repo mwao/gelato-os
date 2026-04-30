@@ -272,7 +272,12 @@ function NavSoon({
 }
 
 function pageTitle(pathname: string): string {
+  if (pathname === '/recipes/new') return '레시피 등록'
+  if (/^\/recipes\/[^/]+\/edit$/.test(pathname)) return '레시피 수정'
+  if (/^\/recipes\/[^/]+$/.test(pathname)) return '레시피 상세'
+  if (pathname.startsWith('/recipes')) return '레시피 관리'
   if (pathname.startsWith('/ingredients')) return '재료 관리'
+  if (pathname.startsWith('/staff')) return '인력 관리'
   return '대시보드'
 }
 
@@ -301,6 +306,16 @@ export function AppLayout() {
     await supabase.auth.signOut()
     queryClient.removeQueries({ queryKey: ['store'] })
     queryClient.removeQueries({ queryKey: ['ingredients'] })
+    queryClient.removeQueries({ queryKey: ['recipes'] })
+    queryClient.removeQueries({ queryKey: ['recipe'] })
+    queryClient.removeQueries({ queryKey: ['employmentTypes'] })
+    queryClient.removeQueries({ queryKey: ['staff'] })
+    queryClient.removeQueries({ queryKey: ['weekSchedule'] })
+    queryClient.removeQueries({ queryKey: ['monthSchedule'] })
+    queryClient.removeQueries({ queryKey: ['attendance'] })
+    queryClient.removeQueries({ queryKey: ['checklistItems'] })
+    queryClient.removeQueries({ queryKey: ['checklistLogsToday'] })
+    queryClient.removeQueries({ queryKey: ['staffCalendar'] })
     navigate('/login', { replace: true })
   }
 
@@ -350,7 +365,14 @@ export function AppLayout() {
           <IconDashboard />
           대시보드
         </NavLink>
-        <NavSoon icon={<IconRecipe />} label="레시피 관리" />
+        <NavLink
+          to="/recipes"
+          className={navLinkClass}
+          onClick={() => setMobileNavOpen(false)}
+        >
+          <IconRecipe />
+          레시피 관리
+        </NavLink>
         <NavLink
           to="/ingredients"
           className={navLinkClass}
@@ -371,7 +393,14 @@ export function AppLayout() {
         <div className="mt-2 px-5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/90">
           Feature 3·4
         </div>
-        <NavSoon icon={<IconStaff />} label="인력 관리" />
+        <NavLink
+          to="/staff"
+          className={navLinkClass}
+          onClick={() => setMobileNavOpen(false)}
+        >
+          <IconStaff />
+          인력 관리
+        </NavLink>
         <NavSoon icon={<IconPayroll />} label="급여 및 정산" />
       </aside>
 
