@@ -16,6 +16,8 @@ export type PlannedWorkDetail = {
   bandLabel: string
   /** 첫 슬롯 시각 HH:mm (지각 비교용) */
   startHm: string
+  /** 마지막 슬롯 종료 시각 HH:mm (근무시간 초과 비교용) */
+  endHm: string
 }
 
 function bandLabelForFirstSlot(
@@ -50,10 +52,17 @@ export function plannedDetailForStaffDay(
   if (!indices.length) return null
   const sorted = [...new Set(indices)].sort((a, b) => a - b)
   const first = sorted[0]!
+  const last = sorted[sorted.length - 1]!
+  const lastLabel = WEEK_SLOT_LABELS[last] ?? '17:00'
+  const [lh, lm] = lastLabel.split(':').map((x) => parseInt(x, 10))
+  const endHm = `${String((Number.isNaN(lh) ? 17 : lh) + 1).padStart(2, '0')}:${String(
+    Number.isNaN(lm) ? 0 : lm,
+  ).padStart(2, '0')}`
   return {
     rangeLabel: formatPlannedSlotRange(sorted),
     bandLabel: bandLabelForFirstSlot(first, settings),
     startHm: WEEK_SLOT_LABELS[first] ?? '09:00',
+    endHm,
   }
 }
 

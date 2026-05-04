@@ -229,7 +229,7 @@ export function usePersistWeekDraft() {
   })
 }
 
-type ProfileStaffRow = {
+export type ProfileStaffRow = {
   id: string
   shifts: { day_of_week: number; shift: 'open' | 'middle' | 'close' }[]
 }
@@ -256,4 +256,39 @@ export function weekDraftFromProfileDefaults(
     }
   }
   return d
+}
+
+/** 초안 맵에서 해당 직원 id만 모든 슬롯에서 제거한다. */
+export function stripStaffFromWeekDraft(
+  prev: Record<string, string[]>,
+  staffId: string,
+): Record<string, string[]> {
+  const next: Record<string, string[]> = {}
+  for (const [k, ids] of Object.entries(prev)) {
+    const filtered = ids.filter((id) => id !== staffId)
+    if (filtered.length > 0) next[k] = filtered
+  }
+  return next
+}
+
+/**
+ * 해당 직원의 기존 배정만 지운 뒤, 그 직원 프로필 근무요일·시프트만 반영한다.
+ * 다른 직원의 칩은 유지한다.
+ */
+export function mergeWeekDraftWithProfileForStaff(
+  prev: Record<string, string[]>,
+  staff: ProfileStaffRow,
+  settings: ShiftTimeSettings,
+): Record<string, string[]> {
+  const cleared = stripStaffFromWeekDraft(prev, staff.id)
+  const partial = weekDraftFromProfileDefaults([staff], settings)
+  const next = { ...cleared }
+  for (const [k, ids] of Object.entries(partial)) {
+    const arr = [...(next[k] ?? [])]
+    for (const id of ids) {
+      if (!arr.includes(id)) arr.push(id)
+    }
+    next[k] = arr
+  }
+  return next
 }

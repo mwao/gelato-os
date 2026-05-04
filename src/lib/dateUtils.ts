@@ -99,6 +99,9 @@ export function checkoutFromLastSlotLocal(baseDay: Date, lastSlotIndex: number):
 
 export const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'] as const
 
+/** 주간 그리드 열: `day_index` 0=월 … 6=일 (`schedule_week_slots` 와 동일) */
+export const WEEK_GRID_DOW_KO = ['월', '화', '수', '목', '금', '토', '일'] as const
+
 export const SHIFT_LABEL: Record<string, string> = {
   open: '오픈',
   middle: '미들',
@@ -183,4 +186,14 @@ export function shiftBadgeClass(shift: string): string {
   if (shift === 'middle') return 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
   if (shift === 'close') return 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
   return 'bg-muted text-muted-foreground'
+}
+
+/** 주간 칸 안 근무자 칩 — 셀은 단색, 시프트는 좌측 액센트만 */
+export function weekStaffChipShellClass(shift: ShiftCode | null): string {
+  const base =
+    'flex w-full min-w-0 items-center gap-0.5 rounded-md border border-border/55 bg-background px-1.5 py-0.5 pl-1.5 text-[11px] font-medium leading-tight text-foreground shadow-sm dark:bg-card'
+  if (shift === 'open') return `${base} border-l-[3px] border-l-primary`
+  if (shift === 'middle') return `${base} border-l-[3px] border-l-blue-500`
+  if (shift === 'close') return `${base} border-l-[3px] border-l-amber-500`
+  return base
 }

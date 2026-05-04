@@ -10,7 +10,13 @@ import { RecipeDetailPage } from '@/pages/RecipeDetailPage'
 import { RecipeFormPage } from '@/pages/RecipeFormPage'
 import { RecipesPage } from '@/pages/RecipesPage'
 import { SignupPage } from '@/pages/SignupPage'
-import { StaffPage } from '@/pages/StaffPage'
+import {
+  StaffPage,
+  StaffProfilePage,
+  StaffSchedulePage,
+  StaffAttendancePage,
+  StaffChecklistPage,
+} from '@/pages/StaffPage'
 
 export default function App() {
   return (
@@ -29,7 +35,13 @@ export default function App() {
         <Route path="recipes/:recipeId/edit" element={<RecipeFormPage />} />
         <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
         <Route path="ingredients" element={<IngredientsPage />} />
-        <Route path="staff" element={<StaffPage />} />
+        <Route path="staff" element={<StaffPage />}>
+          <Route index element={<Navigate to="profile" replace />} />
+          <Route path="profile" element={<StaffProfilePage />} />
+          <Route path="schedule" element={<StaffSchedulePage />} />
+          <Route path="attendance" element={<StaffAttendancePage />} />
+          <Route path="checklist" element={<StaffChecklistPage />} />
+        </Route>
       </Route>
       <Route
         path="/login"

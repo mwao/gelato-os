@@ -253,6 +253,16 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       : 'text-muted-foreground hover:bg-muted/90 hover:text-foreground active:scale-[0.99]',
   )
 
+/** 2뎁스(서브 메뉴) 링크 — 부모 아이콘 폭만큼 들여쓰기, 활성 시 좌측에 작은 인디케이터. */
+const navSubLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    'relative flex w-full items-center gap-2 rounded-md py-1.5 pl-9 pr-3 text-left text-[12.5px] leading-snug tracking-tight transition-colors duration-200',
+    'before:absolute before:left-[22px] before:top-1/2 before:h-1 before:w-1 before:-translate-y-1/2 before:rounded-full',
+    isActive
+      ? 'font-medium text-primary before:bg-primary'
+      : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground before:bg-border',
+  )
+
 function NavSoon({
   icon,
   label,
@@ -277,6 +287,10 @@ function pageTitle(pathname: string): string {
   if (/^\/recipes\/[^/]+$/.test(pathname)) return '레시피 상세'
   if (pathname.startsWith('/recipes')) return '레시피 관리'
   if (pathname.startsWith('/ingredients')) return '재료 관리'
+  if (pathname.startsWith('/staff/profile')) return '인력 관리 · 직원 프로필'
+  if (pathname.startsWith('/staff/schedule')) return '인력 관리 · 근무표'
+  if (pathname.startsWith('/staff/attendance')) return '인력 관리 · 출퇴근'
+  if (pathname.startsWith('/staff/checklist')) return '인력 관리 · 체크리스트'
   if (pathname.startsWith('/staff')) return '인력 관리'
   return '대시보드'
 }
@@ -395,12 +409,43 @@ export function AppLayout() {
         </div>
         <NavLink
           to="/staff"
+          end
           className={navLinkClass}
           onClick={() => setMobileNavOpen(false)}
         >
           <IconStaff />
           인력 관리
         </NavLink>
+        <div className="mt-0.5 mb-1 flex flex-col gap-0.5">
+          <NavLink
+            to="/staff/profile"
+            className={navSubLinkClass}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            직원 프로필
+          </NavLink>
+          <NavLink
+            to="/staff/schedule"
+            className={navSubLinkClass}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            근무표
+          </NavLink>
+          <NavLink
+            to="/staff/attendance"
+            className={navSubLinkClass}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            출퇴근
+          </NavLink>
+          <NavLink
+            to="/staff/checklist"
+            className={navSubLinkClass}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            체크리스트
+          </NavLink>
+        </div>
         <NavSoon icon={<IconPayroll />} label="급여 및 정산" />
       </aside>
 
@@ -450,7 +495,7 @@ export function AppLayout() {
           )}
         >
           <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-6 md:px-5 md:pt-7">
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto w-full md:max-w-3xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl">
               <Outlet />
             </div>
           </div>

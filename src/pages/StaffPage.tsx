@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useQueries } from '@tanstack/react-query'
+import { Outlet } from 'react-router-dom'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
 
 import { AuthLoading } from '@/components/auth/AuthLoading'
 import { Button } from '@/components/ui/button'
@@ -23,21 +24,24 @@ import {
   formatYmdLocal,
   parseYmdLocal,
   SHIFT_LABEL,
-  shiftBadgeClass,
   shiftForSlotIndex,
   startOfIsoWeekMonday,
   type ShiftTimeSettings,
   weekSlotBandBgClass,
+  weekStaffChipShellClass,
+  WEEK_GRID_DOW_KO,
   WEEK_SLOT_LABELS,
 } from '@/lib/dateUtils'
-import { groupAttendanceByDateStaff } from '@/lib/attendanceDisplay'
+import { groupAttendanceByDateStaff, type StaffDayBlock } from '@/lib/attendanceDisplay'
 import {
   mergePlannedByStaffDate,
-  diffPlannedVsActualCheckIn,
+  type PlannedWorkDetail,
 } from '@/lib/plannedFromWeek'
 import { cn } from '@/lib/utils'
 import {
   useAttendanceList,
+  useCorrectAttendance,
+  describeBaselineSyncSummary,
   useGenerateAttendanceBaseline,
   usePunchIn,
   usePunchOut,
@@ -65,24 +69,29 @@ import {
 import type { WeekSlot } from '@/hooks/useWeekSchedule'
 import { fetchStaffWithDefaultShifts } from '@/hooks/useMonthSchedule'
 import {
+  fetchWeekSlots,
+  mergeWeekDraftWithProfileForStaff,
+  stripStaffFromWeekDraft,
   usePersistWeekDraft,
   useWeekSlots,
   weekDraftFromProfileDefaults,
-  fetchWeekSlots,
 } from '@/hooks/useWeekSchedule'
-
-type StaffTab = 'profile' | 'schedule' | 'ta' | 'checklist'
 
 const SHIFT_OPTIONS: ShiftCode[] = ['open', 'middle', 'close']
 
+/**
+ * 인력 관리 라우트 부모. 각 서브경로(`/staff/profile`, `/staff/schedule`,
+ * `/staff/attendance`, `/staff/checklist`)에서 자식 페이지가 렌더된다.
+ *
+ * 부모에서는 매장당 1회 employment_types 시드만 담당.
+ */
 export function StaffPage() {
-  const [tab, setTab] = useState<StaffTab>('profile')
   const { data: store } = useStoreQuery()
   const storeId = store?.id
   const ensureTypes = useEnsureDefaultEmploymentTypes()
   const { isLoading: emplLoading } = useEmploymentTypes()
 
-  /** 매장당 1회만 시드 시도. `[storeId, ensureTypes]` 넣지 않음 — mutation 반환 객체가 렌더마다 바뀌면 effect가 매번 돌아 mutation 안의 fetchTypes(GET)가 무한 반복됨. */
+  /** 매장당 1회만 시드 시도. mutation 객체를 deps에 넣지 말 것(렌더마다 바뀌어 무한 호출). */
   const employmentSeedAttemptedForStore = useRef<string | null>(null)
   useEffect(() => {
     if (!storeId) return
@@ -93,22 +102,6 @@ export function StaffPage() {
     })
   }, [storeId])
 
-  const tabBtn = (id: StaffTab, label: string) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setTab(id)}
-      className={cn(
-        'rounded-lg px-3 py-2 text-[13px] transition-colors',
-        tab === id
-          ? 'bg-primary/15 font-medium text-primary'
-          : 'text-muted-foreground hover:bg-muted/80',
-      )}
-    >
-      {label}
-    </button>
-  )
-
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">
@@ -118,26 +111,22 @@ export function StaffPage() {
         </code>{' '}
         를 Supabase에서 실행해 주세요.
       </p>
-
-      <div className="flex flex-wrap gap-1 border-b border-border/60 pb-px">
-        {tabBtn('profile', '직원 프로필')}
-        {tabBtn('schedule', '근무표')}
-        {tabBtn('ta', '출퇴근')}
-        {tabBtn('checklist', '체크리스트')}
-      </div>
-
-      {emplLoading ? (
-        <AuthLoading />
-      ) : (
-        <>
-          {tab === 'profile' ? <StaffProfileSection /> : null}
-          {tab === 'schedule' ? <StaffScheduleSection /> : null}
-          {tab === 'ta' ? <StaffAttendanceSection /> : null}
-          {tab === 'checklist' ? <StaffChecklistSection /> : null}
-        </>
-      )}
+      {emplLoading ? <AuthLoading /> : <Outlet />}
     </div>
   )
+}
+
+export function StaffProfilePage() {
+  return <StaffProfileSection />
+}
+export function StaffSchedulePage() {
+  return <StaffScheduleSection />
+}
+export function StaffAttendancePage() {
+  return <StaffAttendanceSection />
+}
+export function StaffChecklistPage() {
+  return <StaffChecklistSection />
 }
 
 function StaffProfileSection() {
@@ -738,6 +727,19 @@ function StaffScheduleSection() {
     [weekStart],
   )
 
+  /** 열 순서 = 월(0) … 일(6), `week_start`(월요일) 기준 실제 날짜 */
+  const weekGridColumnMeta = useMemo(() => {
+    const base = parseYmdLocal(weekStart)
+    return [0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
+      const d = addDaysLocal(base, dayIdx)
+      return {
+        dayIdx,
+        dowLabel: WEEK_GRID_DOW_KO[dayIdx]!,
+        md: `${d.getMonth() + 1}/${d.getDate()}`,
+      }
+    })
+  }, [weekStart])
+
   const { data: store } = useStoreQuery()
   const storeId = store?.id
   const [pickStaff, setPickStaff] = useState<string>('')
@@ -826,7 +828,7 @@ function StaffScheduleSection() {
 
   function onWeekCellMouseDown(dayIdx: number, slotIdx: number) {
     if (!pickStaff) {
-      alert('먼저 근무자를 선택해 주세요.')
+      alert('배정하려면 드롭다운에서 근무자 한 명을 선택해 주세요. «전체»일 때는 표만 모두 보입니다.')
       return
     }
     if (slotPast(dayIdx, slotIdx)) return
@@ -960,11 +962,15 @@ function StaffScheduleSection() {
           <CardHeader>
             <CardTitle className="text-base">주간 근무표</CardTitle>
             <CardDescription>
-              근무자를 선택한 뒤 셀을 누르거나 같은 요일(열) 안에서 드래그하면 연속 슬롯에
-              배정합니다. 칸을 바꾼 뒤 반드시 «저장»을 눌러야 서버에 반영되며, 그때 출퇴근
-              «예정»·기준 데이터와 연동됩니다. 시간대 행·이름 칩 색은 «근무관리» 오픈·미들·마감
-              구간과 같습니다. «근무표 가져오기»는 직원 프로필의 근무요일·시프트를 그리드
-              <strong> 초안에만</strong> 채웁니다(저장 전까지 DB에 올라가지 않음).
+              드롭다운에서 근무자를 고르면 그 사람만 그리드에 표시되며, 동시에 그 사람을
+              셀에 배치하는 대상이 됩니다. «전체»이면 모든 배정이 보이고, 특정 인원을 고른 뒤
+              셀을 누르거나 같은 요일(열) 안에서 드래그하면 연속 슬롯에 배정합니다. 칸을 바꾼 뒤
+              반드시 «저장»을 눌러야 서버에 반영되며, 그때 출퇴근 «예정»·기준 데이터와
+              연동됩니다. 시간대 행·이름 칩 색은 «근무관리» 오픈·미들·마감 구간과 같습니다.
+              «근무표 가져오기»는 근무자 선택이 «전체»이면 그리드를 비운 뒤 **모든 직원**
+              프로필 근무요일·시프트로 채우고, **특정 직원**을 고른 상태에서는 그 사람의
+              배정만 지운 뒤 그 직원 프로필만 반영합니다(다른 직원 칩은 유지). 모두 그리드
+              <strong> 초안에만</strong> 적용됩니다(저장 전까지 DB에 올라가지 않음).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -990,7 +996,7 @@ function StaffScheduleSection() {
                   value={pickStaff}
                   onChange={(e) => setPickStaff(e.target.value)}
                 >
-                  <option value="">선택…</option>
+                  <option value="">전체</option>
                   {staffList?.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -1012,29 +1018,68 @@ function StaffScheduleSection() {
                   }
                   onClick={() => {
                     if (!shiftSettings || !storeId) return
+                    const isAll = pickStaff === ''
+                    const pickedName =
+                      staffList?.find((s) => s.id === pickStaff)?.name ||
+                      '선택한 직원'
                     if (
                       !window.confirm(
-                        '근무표가 초기화되며, 직원 프로필의 근무시프트대로 세팅합니다.',
+                        isAll
+                          ? '전체 근무표 초안을 비운 뒤, 모든 직원 프로필의 근무 요일·시프트로 채웁니다. 계속할까요?'
+                          : `「${pickedName}」직원의 배정만 초안에서 지운 뒤, 해당 직원 프로필 근무로 다시 채웁니다. 다른 직원의 배정은 유지됩니다. 계속할까요?`,
                       )
                     )
                       return
                     setApplyProfileBusy(true)
                     void (async () => {
                       try {
-                        const staffRows = await fetchStaffWithDefaultShifts(storeId)
-                        const draft = weekDraftFromProfileDefaults(
-                          staffRows,
-                          shiftSettings,
-                        )
-                        setWeekDraft(draft)
-                        let placed = 0
-                        for (const ids of Object.values(draft)) placed += ids.length
-                        const withRules = staffRows.filter(
-                          (s) => s.shifts.length > 0,
-                        ).length
-                        window.alert(
-                          `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n슬롯 배정 ${placed}건 · 근무 규칙이 있는 직원 ${withRules}명`,
-                        )
+                        const staffRows =
+                          await fetchStaffWithDefaultShifts(storeId)
+                        if (isAll) {
+                          const draft = weekDraftFromProfileDefaults(
+                            staffRows,
+                            shiftSettings,
+                          )
+                          setWeekDraft(draft)
+                          let placed = 0
+                          for (const ids of Object.values(draft))
+                            placed += ids.length
+                          const withRules = staffRows.filter(
+                            (s) => s.shifts.length > 0,
+                          ).length
+                          window.alert(
+                            `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n전체 초기화 후 슬롯 배정 ${placed}건 · 근무 규칙이 있는 직원 ${withRules}명`,
+                          )
+                        } else {
+                          const one = staffRows.filter((s) => s.id === pickStaff)
+                          const partial = weekDraftFromProfileDefaults(
+                            one,
+                            shiftSettings,
+                          )
+                          let placedPartial = 0
+                          for (const ids of Object.values(partial))
+                            placedPartial += ids.length
+
+                          if (one.length === 0) {
+                            setWeekDraft((prev) =>
+                              stripStaffFromWeekDraft(prev, pickStaff),
+                            )
+                            window.alert(
+                              `「${pickedName}」님의 프로필에 근무 요일·시프트가 없습니다. 해당 직원의 배정만 그리드에서 제거했습니다(저장 전까지 서버에 반영되지 않습니다).`,
+                            )
+                          } else {
+                            setWeekDraft((prev) =>
+                              mergeWeekDraftWithProfileForStaff(
+                                prev,
+                                one[0]!,
+                                shiftSettings,
+                              ),
+                            )
+                            window.alert(
+                              `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n「${pickedName}」프로필 기준 슬롯 배정 ${placedPartial}건 · 다른 직원 배정은 유지되었습니다.`,
+                            )
+                          }
+                        }
                       } catch (e) {
                         window.alert(
                           `처리에 실패했습니다. ${getPostgrestMessage(e)}`,
@@ -1062,9 +1107,9 @@ function StaffScheduleSection() {
                       .mutateAsync({ weekStart, draft: weekDraft })
                       .then(async () => {
                         try {
-                          const n = await genBase.mutateAsync(weekStart)
+                          const summary = await genBase.mutateAsync(weekStart)
                           window.alert(
-                            `주간 근무표가 저장되었습니다. 출퇴근 기준 ${n}건 반영.`,
+                            `주간 근무표가 저장되었습니다.\n\n${describeBaselineSyncSummary(summary)}`,
                           )
                         } catch (e) {
                           window.alert(
@@ -1083,24 +1128,84 @@ function StaffScheduleSection() {
                 </Button>
               </div>
             </div>
+            {persistWeek.isPending || genBase.isPending
+              ? createPortal(
+                  <div
+                    className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
+                    role="status"
+                    aria-live="polite"
+                    aria-busy="true"
+                  >
+                    <div className="border-border/60 bg-card text-card-foreground flex w-full max-w-[min(100%,340px)] flex-col items-center gap-5 rounded-2xl border px-8 py-9 shadow-lg">
+                      <div className="relative size-[76px] shrink-0" aria-hidden>
+                        <svg
+                          className="text-muted/35 size-full -rotate-90"
+                          viewBox="0 0 48 48"
+                          fill="none"
+                        >
+                          <circle
+                            cx="24"
+                            cy="24"
+                            r="20"
+                            stroke="currentColor"
+                            strokeWidth="5"
+                          />
+                        </svg>
+                        <svg
+                          className="text-primary absolute inset-0 size-full -rotate-90 motion-safe:animate-spin motion-reduce:animate-none"
+                          viewBox="0 0 48 48"
+                          fill="none"
+                        >
+                          <circle
+                            cx="24"
+                            cy="24"
+                            r="20"
+                            stroke="currentColor"
+                            strokeWidth="5"
+                            strokeLinecap="round"
+                            strokeDasharray="32 100"
+                          />
+                        </svg>
+                      </div>
+                      <p className="text-center text-sm leading-relaxed text-muted-foreground">
+                        {persistWeek.isPending
+                          ? '근무표를 저장하는 중…'
+                          : '출퇴근 기준 데이터를 반영하는 중…'}
+                      </p>
+                    </div>
+                  </div>,
+                  document.body,
+                )
+              : null}
             <div className="overflow-x-auto">
               <table
-                className="w-full min-w-[720px] border-collapse text-xs"
+                className="w-full min-w-[720px] table-fixed border-collapse text-xs"
                 onMouseLeave={() => {
                   weekDragRef.current = null
                 }}
               >
+                <colgroup>
+                  <col style={{ width: '72px' }} />
+                  {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                    <col key={i} />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr>
                     <th className="border border-border/50 bg-muted/40 px-1 py-1 text-left">
                       시간
                     </th>
-                    {DOW_KO.map((d) => (
+                    {weekGridColumnMeta.map(({ dayIdx, dowLabel, md }) => (
                       <th
-                        key={d}
-                        className="border border-border/50 bg-muted/40 px-1 py-1"
+                        key={dayIdx}
+                        className="border border-border/50 bg-muted/40 px-1 py-1.5"
                       >
-                        {d}
+                        <div className="flex flex-col items-center gap-0.5 leading-tight">
+                          <span className="text-[12px] font-semibold">{dowLabel}</span>
+                          <span className="text-[10px] font-normal text-muted-foreground">
+                            {md}
+                          </span>
+                        </div>
                       </th>
                     ))}
                   </tr>
@@ -1124,13 +1229,16 @@ function StaffScheduleSection() {
                       {[0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
                         const past = slotPast(dayIdx, slotIdx)
                         const k = weekDraftKey(slotIdx, dayIdx)
-                        const ids = weekDraft[k] ?? []
+                        const rawIds = weekDraft[k] ?? []
+                        const ids = pickStaff
+                          ? rawIds.filter((id) => id === pickStaff)
+                          : rawIds
                         return (
                           <td
                             key={dayIdx}
                             className={cn(
                               'border border-border/50 p-1 align-top select-none',
-                              !past && weekSlotBandBgClass(slotBand),
+                              !past && 'bg-card',
                               past && 'bg-muted/50 opacity-60',
                             )}
                             onMouseDown={() =>
@@ -1138,17 +1246,19 @@ function StaffScheduleSection() {
                             }
                             onMouseEnter={() => onWeekCellMouseEnter(dayIdx, slotIdx)}
                           >
-                            <div className="flex min-h-[52px] w-full min-w-0 flex-col gap-1">
+                            <div
+                              className={cn(
+                                'flex min-h-[38px] w-full min-w-0 flex-col gap-0.5',
+                                ids.length === 1 && 'justify-center',
+                              )}
+                            >
                               {ids.map((sid) => {
                                 const name =
                                   staffList?.find((x) => x.id === sid)?.name ?? sid
                                 return (
                                   <div
                                     key={sid}
-                                    className={cn(
-                                      'flex w-full min-w-0 items-stretch gap-0.5 rounded-md border border-border/50 px-1.5 py-1 pl-2 text-[11px] leading-snug shadow-sm',
-                                      shiftBadgeClass(slotBand ?? ''),
-                                    )}
+                                    className={weekStaffChipShellClass(slotBand)}
                                   >
                                     <span className="min-w-0 flex-1 truncate font-medium">
                                       {name}
@@ -1156,8 +1266,14 @@ function StaffScheduleSection() {
                                     {!past ? (
                                       <button
                                         type="button"
-                                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/15 active:bg-destructive/25"
+                                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/15 active:bg-destructive/25"
                                         title="이 슬롯에서 제거"
+                                        onMouseDown={(e) => {
+                                          e.stopPropagation()
+                                        }}
+                                        onPointerDown={(e) => {
+                                          e.stopPropagation()
+                                        }}
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           removeStaffFromWeekCell(
@@ -1168,7 +1284,7 @@ function StaffScheduleSection() {
                                         }}
                                       >
                                         <span
-                                          className="text-lg font-light leading-none"
+                                          className="text-base font-light leading-none"
                                           aria-hidden
                                         >
                                           ×
@@ -1195,39 +1311,456 @@ function StaffScheduleSection() {
   )
 }
 
+/** 행 내 시각 표시용 — HH:mm (24시간제, 로컬). */
+function fmtHm(ts: string | null) {
+  if (!ts) return '—'
+  try {
+    const d = new Date(ts)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  } catch {
+    return ts
+  }
+}
+
+function hmToIso(dateKey: string, hm: string): string {
+  const [hh, mm] = hm.split(':').map(Number)
+  const d = new Date(dateKey)
+  d.setHours(hh ?? 0, mm ?? 0, 0, 0)
+  return d.toISOString()
+}
+
+
+// ============================================================================
+// 출퇴근 표(PersonRow) — 카드 형식(PersonBlock)을 대체하는 9열 표 형식 행
+// ----------------------------------------------------------------------------
+// 컬럼: 근무자 / 근태 / 출근예정 / 출근 / 출근상태 / 퇴근예정 / 퇴근 / 퇴근상태 /
+//       근무시간 / (액션 — 출근·퇴근·수정 버튼)
+// ============================================================================
+
+type AttendanceLabel =
+  | '출근예정'
+  | '근무종료'
+  | '휴무'
+  | '연차'
+  | '조기출근'
+  | '정상'
+  | '지각'
+  | '조퇴'
+  | '연장근무'
+  | '-'
+
+function hmToMin(hm: string | null | undefined): number | null {
+  if (!hm) return null
+  const [h, m] = hm.split(':').map((x) => parseInt(x, 10))
+  if (Number.isNaN(h)) return null
+  return h * 60 + (Number.isNaN(m) ? 0 : m)
+}
+
+function isoLocalMin(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+/** 출근 상태: 실제-예정. ≤ -20분 조기출근, -19~0분 정상, ≥ +1분 지각 */
+function checkInStatus(
+  plannedStartHm: string | undefined,
+  actualCheckInIso: string | null | undefined,
+): AttendanceLabel {
+  const p = hmToMin(plannedStartHm)
+  const a = isoLocalMin(actualCheckInIso)
+  if (p == null || a == null) return '-'
+  const diff = a - p
+  if (diff <= -20) return '조기출근'
+  if (diff <= 0) return '정상'
+  return '지각'
+}
+
+/** 퇴근 상태: 실제-예정. ≤ -1분 조퇴, 0~+19분 정상, ≥ +20분 연장근무 */
+function checkOutStatus(
+  plannedEndHm: string | undefined,
+  actualCheckOutIso: string | null | undefined,
+): AttendanceLabel {
+  const p = hmToMin(plannedEndHm)
+  const a = isoLocalMin(actualCheckOutIso)
+  if (p == null || a == null) return '-'
+  const diff = a - p
+  if (diff <= -1) return '조퇴'
+  if (diff < 20) return '정상'
+  return '연장근무'
+}
+
+/** 근무시간: 실제 출근~퇴근 (h:mm). 둘 다 있을 때만. */
+function workDurationLabel(
+  actualIn: string | null | undefined,
+  actualOut: string | null | undefined,
+): string {
+  if (!actualIn || !actualOut) return '-'
+  const ms = new Date(actualOut).getTime() - new Date(actualIn).getTime()
+  if (!Number.isFinite(ms) || ms <= 0) return '-'
+  const totalMin = Math.round(ms / 60000)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return `${h}:${String(m).padStart(2, '0')}`
+}
+
+function attendanceLabelClass(label: AttendanceLabel): string {
+  const base =
+    'inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none'
+  switch (label) {
+    case '출근예정':
+      return `${base} bg-primary/15 text-primary`
+    case '근무종료':
+      return `${base} bg-slate-500/15 text-slate-700 dark:text-slate-300`
+    case '휴무':
+      return `${base} bg-muted text-muted-foreground`
+    case '연차':
+      return `${base} bg-rose-500/15 text-rose-700 dark:text-rose-300`
+    case '조기출근':
+      return `${base} bg-sky-500/15 text-sky-700 dark:text-sky-300`
+    case '정상':
+      return `${base} bg-emerald-500/15 text-emerald-700 dark:text-emerald-300`
+    case '지각':
+      return `${base} bg-destructive/15 text-destructive`
+    case '조퇴':
+      return `${base} bg-destructive/15 text-destructive`
+    case '연장근무':
+      return `${base} bg-amber-500/15 text-amber-700 dark:text-amber-300`
+    default:
+      return ''
+  }
+}
+
+function PersonRow({
+  dateKey,
+  staffId,
+  staffName,
+  showPunch,
+  block,
+  planned,
+}: {
+  dateKey: string
+  staffId: string
+  staffName: string
+  showPunch: boolean
+  block: StaffDayBlock | undefined
+  planned: PlannedWorkDetail | undefined
+}) {
+  const queryClient = useQueryClient()
+  const punchIn = usePunchIn()
+  const punchOut = usePunchOut()
+  const correctAttendance = useCorrectAttendance()
+  const [punchError, setPunchError] = useState<string | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editIn, setEditIn] = useState('')
+  const [editOut, setEditOut] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const actualRecord = block?.actual ?? null
+
+  const plannedStartHm = planned?.startHm
+  const plannedEndHm = planned?.endHm
+
+  const actualInIso = actualRecord?.check_in ?? null
+  const actualOutIso = actualRecord?.check_out ?? null
+  const actualInHm = actualInIso ? fmtHm(actualInIso) : null
+  const actualOutHm = actualOutIso ? fmtHm(actualOutIso) : null
+
+  // 근태 예정: 예정 슬롯이 있으면 「출근예정」, 없으면 「휴무」.
+  // 출근·퇴근이 모두 찍히면 「근무종료」로 전환.
+  // (※ 「연차」 는 별도 데이터 모델 필요 — 현재 미지원, 추후 휴가 테이블 도입 시 분기 추가 예정.)
+  const plannedStatus: AttendanceLabel = !planned
+    ? '휴무'
+    : actualInIso && actualOutIso
+      ? '근무종료'
+      : '출근예정'
+
+  const inStatus: AttendanceLabel =
+    plannedStatus === '휴무' || !actualInIso
+      ? '-'
+      : checkInStatus(plannedStartHm, actualInIso)
+  const outStatus: AttendanceLabel =
+    plannedStatus === '휴무' || !actualOutIso
+      ? '-'
+      : checkOutStatus(plannedEndHm, actualOutIso)
+  const duration = workDurationLabel(actualInIso, actualOutIso)
+
+  const hasActualPunchIn = Boolean(actualInIso)
+  const hasActualPunchOut = Boolean(actualOutIso)
+  const editableId = actualRecord?.id ?? null
+
+  function openEdit() {
+    setEditIn(actualInHm ?? '')
+    setEditOut(actualOutHm ?? '')
+    setEditError(null)
+    setEditMode(true)
+  }
+  function cancelEdit() {
+    setEditMode(false)
+    setEditError(null)
+  }
+
+  async function handlePunchIn() {
+    setPunchError(null)
+    try {
+      await punchIn.mutateAsync(staffId)
+    } catch (e) {
+      setPunchError(e instanceof Error ? e.message : '출근 처리에 실패했습니다.')
+    } finally {
+      await queryClient.invalidateQueries({
+        queryKey: ['attendance'],
+        refetchType: 'active',
+      })
+    }
+  }
+  async function handlePunchOut() {
+    setPunchError(null)
+    try {
+      await punchOut.mutateAsync(staffId)
+    } catch (e) {
+      setPunchError(e instanceof Error ? e.message : '퇴근 처리에 실패했습니다.')
+    } finally {
+      await queryClient.invalidateQueries({
+        queryKey: ['attendance'],
+        refetchType: 'active',
+      })
+    }
+  }
+  async function handleSaveEdit() {
+    setEditError(null)
+    if (!editableId) {
+      setEditError('수정할 출퇴근 기록이 없습니다.')
+      return
+    }
+    if (!editIn) {
+      setEditError('출근 시간을 입력해 주세요.')
+      return
+    }
+    try {
+      await correctAttendance.mutateAsync({
+        attendanceId: editableId,
+        checkIn: hmToIso(dateKey, editIn),
+        checkOut: editOut ? hmToIso(dateKey, editOut) : null,
+      })
+      setEditMode(false)
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : '수정에 실패했습니다.')
+    }
+  }
+
+  const cell = 'px-2 py-1.5 align-middle'
+  const mono = 'font-mono tabular-nums text-[12px]'
+  const muted = 'text-muted-foreground'
+
+  return (
+    <>
+      <tr className="border-border/50 border-b">
+        <td className={`${cell} text-sm font-medium`}>{staffName}</td>
+        <td className={cell}>
+          <span className={attendanceLabelClass(plannedStatus)}>
+            {plannedStatus}
+          </span>
+        </td>
+        <td className={`${cell} ${mono} ${muted}`}>{plannedStartHm ?? '-'}</td>
+        <td className={`${cell} ${mono}`}>{actualInHm ?? <span className={muted}>-</span>}</td>
+        <td className={cell}>
+          {inStatus === '-' ? (
+            <span className={muted}>-</span>
+          ) : (
+            <span className={attendanceLabelClass(inStatus)}>{inStatus}</span>
+          )}
+        </td>
+        <td className={`${cell} ${mono} ${muted}`}>{plannedEndHm ?? '-'}</td>
+        <td className={`${cell} ${mono}`}>{actualOutHm ?? <span className={muted}>-</span>}</td>
+        <td className={cell}>
+          {outStatus === '-' ? (
+            <span className={muted}>-</span>
+          ) : (
+            <span className={attendanceLabelClass(outStatus)}>{outStatus}</span>
+          )}
+        </td>
+        <td className={`${cell} ${mono} ${muted}`}>{duration}</td>
+        <td className={cell}>
+          <div className="flex flex-wrap justify-end gap-1">
+            {showPunch ? (
+              <>
+                <Button
+                  size="sm"
+                  type="button"
+                  className="h-6 px-2 text-xs"
+                  disabled={punchIn.isPending || hasActualPunchIn}
+                  onClick={() => void handlePunchIn()}
+                >
+                  출근
+                </Button>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                  className="h-6 px-2 text-xs"
+                  disabled={
+                    punchOut.isPending || !hasActualPunchIn || hasActualPunchOut
+                  }
+                  onClick={() => void handlePunchOut()}
+                >
+                  퇴근
+                </Button>
+              </>
+            ) : null}
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              disabled={!editableId || editMode}
+              onClick={openEdit}
+            >
+              수정
+            </Button>
+          </div>
+        </td>
+      </tr>
+      {editMode ? (
+        <tr className="bg-muted/20 border-border/50 border-b">
+          <td colSpan={10} className="px-2 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">{staffName} 시각 수정</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">출근</span>
+                <Input
+                  type="time"
+                  className="h-7 w-28 px-1 py-0 text-xs"
+                  value={editIn}
+                  onChange={(e) => setEditIn(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">퇴근</span>
+                <Input
+                  type="time"
+                  className="h-7 w-28 px-1 py-0 text-xs"
+                  value={editOut}
+                  onChange={(e) => setEditOut(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                type="button"
+                className="h-7 px-2 text-xs"
+                disabled={correctAttendance.isPending}
+                onClick={() => void handleSaveEdit()}
+              >
+                저장
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={cancelEdit}
+              >
+                취소
+              </Button>
+              {editError ? (
+                <span className="text-destructive">{editError}</span>
+              ) : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+      {punchError ? (
+        <tr>
+          <td colSpan={10} className="text-destructive px-2 py-1 text-xs">
+            {punchError}
+          </td>
+        </tr>
+      ) : null}
+    </>
+  )
+}
+
+function AttendanceTableHead() {
+  const th =
+    'border-border/50 border-b px-2 py-1.5 text-left text-xs font-medium text-muted-foreground'
+  return (
+    <thead>
+      <tr>
+        <th className={th}>근무자</th>
+        <th className={th}>근태</th>
+        <th className={th}>출근예정</th>
+        <th className={th}>출근</th>
+        <th className={th}>출근상태</th>
+        <th className={th}>퇴근예정</th>
+        <th className={th}>퇴근</th>
+        <th className={th}>퇴근상태</th>
+        <th className={th}>근무시간</th>
+        <th className={`${th} text-right`}>조작</th>
+      </tr>
+    </thead>
+  )
+}
+
 function StaffAttendanceSection() {
-  const [filterDate, setFilterDate] = useState('')
+  const todayKey = formatYmdLocal(new Date())
+  // 기본 기간: 이번 주 월~일 (오늘이 포함된 주)
+  const thisWeekStart = formatYmdLocal(startOfIsoWeekMonday(new Date()))
+  const thisWeekEnd = formatYmdLocal(
+    addDaysLocal(parseYmdLocal(thisWeekStart), 6),
+  )
+
+  const [rangeFrom, setRangeFrom] = useState(thisWeekStart)
+  const [rangeTo, setRangeTo] = useState(thisWeekEnd)
+
   const { data: store } = useStoreQuery()
   const storeId = store?.id
   const { data: staffList } = useStaffList()
-  const { data: rows, refetch } = useAttendanceList({
-    from: filterDate || undefined,
-    to: filterDate || undefined,
+
+  // 기간 정상화 (from > to 면 swap). 오늘 포함 보장을 위해 effectiveFrom/effectiveTo 분리.
+  const [effFrom, effTo] = useMemo(() => {
+    if (!rangeFrom || !rangeTo) return [rangeFrom, rangeTo] as const
+    return rangeFrom <= rangeTo
+      ? ([rangeFrom, rangeTo] as const)
+      : ([rangeTo, rangeFrom] as const)
+  }, [rangeFrom, rangeTo])
+
+  // 기간 데이터(이전 기록용)
+  const { data: rangeRows } = useAttendanceList({
+    from: effFrom || undefined,
+    to: effTo || undefined,
   })
+  // 오늘 데이터는 항상 별도 조회 — 기간 필터와 독립적으로 상단 고정.
+  const { data: todayRows } = useAttendanceList({
+    from: todayKey,
+    to: todayKey,
+  })
+
   const { data: shiftStore } = useShiftTimeSettings()
-  const settings =
-    shiftStore?.settings ?? DEFAULT_SHIFT_TIME_SETTINGS
+  const settings = shiftStore?.settings ?? DEFAULT_SHIFT_TIME_SETTINGS
 
-  const punchIn = usePunchIn()
-  const punchOut = usePunchOut()
-
-  const grouped = useMemo(
-    () => groupAttendanceByDateStaff(rows ?? []),
-    [rows],
+  const groupedRange = useMemo(
+    () => groupAttendanceByDateStaff(rangeRows ?? []),
+    [rangeRows],
+  )
+  const groupedToday = useMemo(
+    () => groupAttendanceByDateStaff(todayRows ?? []),
+    [todayRows],
   )
 
-  const todayKey = formatYmdLocal(new Date())
-
+  // 주간 슬롯(예정) 도출에 필요한 weekStart 집합 — 오늘 + 기간 + 그룹 데이터 전부 커버.
   const weekStartsNeeded = useMemo(() => {
     const set = new Set<string>()
     set.add(formatYmdLocal(startOfIsoWeekMonday(new Date())))
-    for (const g of grouped) {
-      set.add(
-        formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(g.dateKey))),
-      )
+    if (effFrom)
+      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(effFrom))))
+    if (effTo)
+      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(effTo))))
+    for (const g of groupedRange) {
+      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(g.dateKey))))
     }
     return [...set]
-  }, [grouped])
+  }, [groupedRange, effFrom, effTo])
 
   const slotQueries = useQueries({
     queries: weekStartsNeeded.map((ws) => ({
@@ -1242,143 +1775,36 @@ function StaffAttendanceSection() {
     return mergePlannedByStaffDate(weekStartsNeeded, data, settings)
   }, [weekStartsNeeded, slotQueries, settings])
 
-  function fmtShort(ts: string | null) {
-    if (!ts) return '—'
-    try {
-      const d = new Date(ts)
-      return d.toLocaleString('ko-KR', {
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    } catch {
-      return ts
-    }
-  }
-
   function dateHeading(dateKey: string) {
     const [y, m, d] = dateKey.split('-').map(Number)
     const wd = DOW_KO[new Date(y, m - 1, d).getDay()]
     return `${dateKey} (${wd})`
   }
 
-  function mergeStaffIdsForDate(
-    dateKey: string,
-    blockList: { staff_id: string }[],
-  ) {
-    const set = new Set<string>()
-    for (const b of blockList) set.add(b.staff_id)
-    for (const s of staffList ?? []) {
-      if (plannedMap.has(`${s.id}_${dateKey}`)) set.add(s.id)
+  /** 기간 안의 모든 날짜를 YYYY-MM-DD 배열로 펼친다(오늘 제외). 데이터가 없는 날짜도 카드로 표시하기 위함. */
+  const rangeDateKeys = useMemo(() => {
+    if (!effFrom || !effTo) return [] as string[]
+    const out: string[] = []
+    const start = parseYmdLocal(effFrom)
+    const end = parseYmdLocal(effTo)
+    const cursor = new Date(start)
+    cursor.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+    let safety = 0
+    while (cursor <= end && safety < 366) {
+      const k = formatYmdLocal(cursor)
+      if (k !== todayKey) out.push(k)
+      cursor.setDate(cursor.getDate() + 1)
+      safety++
     }
-    return [...set].sort((a, b) => {
-      const na = staffList?.find((x) => x.id === a)?.name ?? a
-      const nb = staffList?.find((x) => x.id === b)?.name ?? b
-      return na.localeCompare(nb, 'ko')
-    })
+    // 시작일→종료일 순(오름차순). 루프 순서가 이미 시간순이므로 추가 정렬 불필요.
+    return out
+  }, [effFrom, effTo, todayKey])
+
+  function setThisWeek() {
+    setRangeFrom(thisWeekStart)
+    setRangeTo(thisWeekEnd)
   }
-
-  const pastGroups = useMemo(() => {
-    let g = grouped.filter((x) => x.dateKey < todayKey)
-    if (filterDate) g = g.filter((x) => x.dateKey === filterDate)
-    else g = g.slice(0, 12)
-    return g
-  }, [grouped, filterDate, todayKey])
-
-  function renderPersonBlock(
-    dateKey: string,
-    staffId: string,
-    staffName: string,
-    showPunch: boolean,
-  ) {
-    const block = grouped
-      .find((d) => d.dateKey === dateKey)
-      ?.blocks.find((b) => b.staff_id === staffId)
-    const planned = plannedMap.get(`${staffId}_${dateKey}`)
-    const plannedStr = planned
-      ? `${dateKey} ${planned.rangeLabel} (${planned.bandLabel})`
-      : '—'
-    const actualIn = block?.actual?.check_in ?? null
-    const actualOut = block?.actual?.check_out ?? null
-    const pd =
-      planned && actualIn
-        ? diffPlannedVsActualCheckIn(planned.startHm, actualIn)
-        : null
-
-    return (
-      <div
-        key={`${dateKey}-${staffId}`}
-        className="border-border/60 rounded-xl border bg-muted/10 p-3"
-      >
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{staffName}</span>
-          {showPunch ? (
-            <div className="ml-auto flex flex-wrap gap-1.5">
-              <Button
-                size="sm"
-                type="button"
-                disabled={punchIn.isPending}
-                onClick={() =>
-                  void punchIn.mutateAsync(staffId).then(() => refetch())
-                }
-              >
-                출근
-              </Button>
-              <Button
-                size="sm"
-                type="button"
-                variant="secondary"
-                disabled={punchOut.isPending || !actualIn}
-                onClick={() =>
-                  void punchOut.mutateAsync(staffId).then(() => refetch())
-                }
-              >
-                퇴근
-              </Button>
-            </div>
-          ) : null}
-        </div>
-        <div className="space-y-1.5 text-xs">
-          <div className="flex flex-wrap gap-2">
-            <span className="text-primary w-10 shrink-0 font-medium">예정</span>
-            <span className="text-foreground/90 min-w-0">{plannedStr}</span>
-          </div>
-          <div className="flex flex-wrap items-start gap-2">
-            <span className="w-10 shrink-0 font-medium text-amber-800 dark:text-amber-200">
-              실제
-            </span>
-            <span className="min-w-0">
-              {actualIn ? (
-                <>
-                  {fmtShort(actualIn)} (출근)
-                  {actualOut
-                    ? ` ~ ${fmtShort(actualOut)} (퇴근)`
-                    : ' ~ [퇴근 전]'}
-                  {pd === 'late' ? (
-                    <span className="text-destructive ml-1.5">지각</span>
-                  ) : null}
-                  {pd === 'early' ? (
-                    <span className="ml-1.5 text-sky-700 dark:text-sky-300">
-                      조기출근
-                    </span>
-                  ) : null}
-                </>
-              ) : (
-                <span className="text-muted-foreground">출퇴근 기록 없음</span>
-              )}
-            </span>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const showTodaySection = !filterDate || filterDate === todayKey
-  const filterSingleDay = filterDate && filterDate !== ''
-  const singleDayGroups = filterSingleDay
-    ? grouped.filter((g) => g.dateKey === filterDate)
-    : []
 
   return (
     <Card>
@@ -1393,98 +1819,140 @@ function StaffAttendanceSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">날짜 이동</span>
-          <Input
-            type="date"
-            className="max-w-[180px]"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setFilterDate('')}
-          >
-            전체 보기
-          </Button>
-        </div>
-
-        {filterSingleDay ? (
-          <div>
-            <p className="mb-3 text-xs font-medium text-muted-foreground">
-              선택한 날짜
-            </p>
-            <div className="space-y-2">
-              {(singleDayGroups.length
-                ? mergeStaffIdsForDate(filterDate, singleDayGroups[0]!.blocks)
-                : mergeStaffIdsForDate(filterDate, [])
-              ).map((sid) =>
-                renderPersonBlock(
-                  filterDate,
-                  sid,
-                  staffList?.find((x) => x.id === sid)?.name ?? sid,
-                  filterDate === todayKey,
-                ),
-              )}
-            </div>
+        {/* 1) 오늘 — 기간 필터와 무관하게 항상 상단 고정 */}
+        <section>
+          <p className="mb-3 text-sm font-medium">오늘 ({todayKey})</p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
+              <AttendanceTableHead />
+              <tbody>
+                {(staffList ?? []).map((s) => {
+                  const todayGroup = groupedToday.find(
+                    (d) => d.dateKey === todayKey,
+                  )
+                  return (
+                    <PersonRow
+                      key={`${todayKey}-${s.id}`}
+                      dateKey={todayKey}
+                      staffId={s.id}
+                      staffName={s.name}
+                      showPunch={true}
+                      block={todayGroup?.blocks.find(
+                        (b) => b.staff_id === s.id,
+                      )}
+                      planned={plannedMap.get(`${s.id}_${todayKey}`)}
+                    />
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          <>
-            <div>
-              <p className="mb-3 text-xs font-medium text-muted-foreground">
-                이전 기록{' '}
-                <span className="font-normal">
-                  (날짜별 · 주간 근무표 연동 예정)
-                </span>
-              </p>
-              {pastGroups.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  이전 기록이 없습니다.
-                </p>
-              ) : (
-                <div className="space-y-6">
-                  {pastGroups.map((day) => (
-                    <div key={day.dateKey} className="space-y-2">
-                      <div className="flex items-center gap-2 border-b border-border/50 pb-1">
-                        <span aria-hidden className="text-base">
-                          📅
-                        </span>
-                        <span className="text-sm font-medium">
-                          {dateHeading(day.dateKey)}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        {mergeStaffIdsForDate(day.dateKey, day.blocks).map(
-                          (sid) =>
-                            renderPersonBlock(
-                              day.dateKey,
-                              sid,
-                              staffList?.find((x) => x.id === sid)?.name ??
-                                sid,
-                              false,
-                            ),
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+        </section>
 
-            {showTodaySection ? (
-              <div>
-                <p className="mb-3 text-sm font-medium">오늘 ({todayKey})</p>
-                <div className="space-y-2">
-                  {(staffList ?? []).map((s) =>
-                    renderPersonBlock(todayKey, s.id, s.name, true),
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
+        {/* 2) 날짜 셀렉 UI */}
+        <section className="border-border/60 rounded-lg border bg-muted/10 p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="grid gap-1">
+              <span className="text-xs text-muted-foreground">시작 날짜</span>
+              <Input
+                type="date"
+                className="h-9 w-[160px]"
+                value={rangeFrom}
+                max={rangeTo || undefined}
+                onChange={(e) => setRangeFrom(e.target.value)}
+              />
+            </div>
+            <span className="text-muted-foreground pb-2">~</span>
+            <div className="grid gap-1">
+              <span className="text-xs text-muted-foreground">종료 날짜</span>
+              <Input
+                type="date"
+                className="h-9 w-[160px]"
+                value={rangeTo}
+                min={rangeFrom || undefined}
+                onChange={(e) => setRangeTo(e.target.value)}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={setThisWeek}
+            >
+              이번 주
+            </Button>
+          </div>
+        </section>
+
+        {/* 3) 셀렉한 기간의 일별 카드 — 오늘은 제외. 과거는 회색, 미래는 그대로. */}
+        <section className="space-y-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            이전 기록 ({effFrom || '—'} ~ {effTo || '—'})
+          </p>
+          {rangeDateKeys.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              해당 기간의 기록이 없습니다.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {rangeDateKeys.map((dateKey) => {
+                const isPast = dateKey < todayKey
+                const dayGroup = groupedRange.find(
+                  (d) => d.dateKey === dateKey,
+                )
+                return (
+                  <div
+                    key={dateKey}
+                    className={cn(
+                      'border-border/60 rounded-xl border bg-card p-3 shadow-sm',
+                      isPast && 'opacity-60',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'mb-2 flex items-center gap-2',
+                        isPast ? 'text-muted-foreground' : 'text-foreground',
+                      )}
+                    >
+                      <span aria-hidden className="text-base">
+                        📅
+                      </span>
+                      <span className="text-sm font-medium">
+                        {dateHeading(dateKey)}
+                      </span>
+                      {isPast ? (
+                        <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                          과거
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[860px] border-collapse text-sm">
+                        <AttendanceTableHead />
+                        <tbody>
+                          {(staffList ?? []).map((s) => (
+                            <PersonRow
+                              key={`${dateKey}-${s.id}`}
+                              dateKey={dateKey}
+                              staffId={s.id}
+                              staffName={s.name}
+                              showPunch={false}
+                              block={dayGroup?.blocks.find(
+                                (b) => b.staff_id === s.id,
+                              )}
+                              planned={plannedMap.get(`${s.id}_${dateKey}`)}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
       </CardContent>
     </Card>
   )
