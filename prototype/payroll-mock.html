@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>급여 & 정산 — gelato-os</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #f5f4f0;
+    --surface: #ffffff;
+    --surface-2: #f0ede8;
+    --border: #e2ddd8;
+    --border-strong: #ccc8c0;
+    --text-primary: #1a1916;
+    --text-secondary: #6b6760;
+    --text-muted: #a09d98;
+    --accent: #2d5a3d;
+    --accent-light: #e8f0eb;
+    --accent-hover: #234a30;
+    --warn: #c0392b;
+    --warn-light: #fdf0ee;
+    --blue: #1a4a8a;
+    --blue-light: #eaf0fa;
+    --amber: #b07d1a;
+    --amber-light: #fdf6e3;
+    --ok: #2d5a3d;
+    --ok-light: #e8f0eb;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    font-size: 14px;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 220px;
+    min-height: 100vh;
+    background: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-logo {
+    padding: 28px 20px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .sidebar-logo .brand {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+  .sidebar-logo .sub {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    margin-top: 2px;
+  }
+  .sidebar-nav { padding: 12px 0; flex: 1; }
+  .nav-section { padding: 12px 16px 4px; font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.25); letter-spacing: 1px; text-transform: uppercase; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 20px;
+    font-size: 13px; color: rgba(255,255,255,0.5);
+    cursor: pointer; transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .nav-item:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.05); }
+  .nav-item.active { color: #fff; background: rgba(255,255,255,0.08); border-left-color: #6dbf82; }
+  .nav-item .icon { font-size: 15px; width: 18px; text-align: center; }
+
+  /* ── Main ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-title { font-size: 16px; font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+  }
+
+  .content { padding: 28px 32px; flex: 1; display: flex; flex-direction: column; gap: 24px; }
+
+  /* ── Period bar ── */
+  .period-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 20px;
+    box-shadow: var(--shadow);
+  }
+  .period-nav { display: flex; align-items: center; gap: 12px; }
+  .period-label { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .period-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+  .btn-icon {
+    width: 32px; height: 32px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); font-size: 14px;
+    transition: all 0.15s;
+  }
+  .btn-icon:hover { background: var(--surface-2); border-color: var(--border-strong); }
+  .period-right { display: flex; gap: 8px; }
+  .btn {
+    padding: 7px 16px; border-radius: 7px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none; transition: all 0.15s;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .btn-outline {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  .btn-outline:hover { background: var(--surface-2); }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  /* ── Summary cards ── */
+  .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .card-label { font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 8px; }
+  .card-value { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; font-family: 'DM Mono', monospace; }
+  .card-value.accent { color: var(--accent); }
+  .card-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+  .card-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 20px; margin-top: 6px;
+  }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-warn { background: var(--warn-light); color: var(--warn); }
+  .badge-amber { background: var(--amber-light); color: var(--amber); }
+  .badge-blue { background: var(--blue-light); color: var(--blue); }
+
+  /* ── Staff table ── */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-title { font-size: 15px; font-weight: 600; }
+  .section-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: var(--surface-2); }
+  th {
+    padding: 11px 16px; text-align: left;
+    font-size: 11px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.5px; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  th.right, td.right { text-align: right; }
+  td {
+    padding: 14px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr { cursor: pointer; transition: background 0.12s; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #faf9f7; }
+  tbody tr.selected { background: var(--accent-light); }
+
+  .staff-info { display: flex; align-items: center; gap: 10px; }
+  .staff-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .staff-name { font-weight: 500; }
+  .staff-type { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+  .mono { font-family: 'DM Mono', monospace; font-size: 13px; }
+
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500;
+    padding: 4px 9px; border-radius: 20px;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  .action-group { display: flex; gap: 6px; justify-content: flex-end; }
+  .btn-sm {
+    padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 500;
+    cursor: pointer; border: 1px solid var(--border); background: transparent;
+    color: var(--text-secondary); transition: all 0.12s;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .btn-sm:hover { background: var(--surface-2); }
+  .btn-sm.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-sm.primary:hover { background: var(--accent-hover); }
+
+  /* ── Detail panel ── */
+  .detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    animation: slideDown 0.2s ease;
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .panel-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface-2);
+  }
+  .panel-title { font-size: 15px; font-weight: 600; }
+  .panel-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .panel-close {
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 14px; transition: all 0.12s;
+  }
+  .panel-close:hover { background: var(--warn-light); color: var(--warn); }
+
+  .panel-body { display: grid; grid-template-columns: 1fr 300px; }
+
+  .panel-left { padding: 20px 24px; border-right: 1px solid var(--border); }
+  .panel-right { padding: 20px 24px; }
+
+  .sub-section-title {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+
+  /* attendance mini table */
+  .att-table { width: 100%; border-collapse: collapse; }
+  .att-table th {
+    padding: 8px 10px; font-size: 10px; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border); background: transparent;
+  }
+  .att-table td {
+    padding: 10px 10px; font-size: 12px; border-bottom: 1px solid var(--border);
+  }
+  .att-table tr:last-child td { border-bottom: none; }
+
+  .diff-tag {
+    font-size: 10px; font-weight: 600;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .diff-ok { background: var(--ok-light); color: var(--ok); }
+  .diff-late { background: var(--warn-light); color: var(--warn); }
+  .diff-early { background: var(--blue-light); color: var(--blue); }
+
+  /* pay breakdown */
+  .pay-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .pay-row:last-child { border-bottom: none; }
+  .pay-row-label { font-size: 13px; color: var(--text-secondary); }
+  .pay-row-value { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; }
+  .pay-total {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 0 0;
+    border-top: 2px solid var(--text-primary);
+    margin-top: 4px;
+  }
+  .pay-total-label { font-size: 14px; font-weight: 700; }
+  .pay-total-value { font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 700; color: var(--accent); }
+
+  .confirm-btn {
+    width: 100%; margin-top: 16px;
+    padding: 12px; border-radius: 8px;
+    background: var(--accent); color: #fff;
+    border: none; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+    font-family: 'Noto Sans KR', sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .confirm-btn:hover { background: var(--accent-hover); }
+  .confirm-btn.done { background: var(--border); color: var(--text-muted); cursor: default; }
+
+  .allowance-note {
+    background: var(--amber-light);
+    border: 1px solid #e6c87a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--amber);
+    margin-top: 12px;
+    line-height: 1.6;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--text-primary); color: #fff;
+    padding: 12px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    display: none; align-items: center; gap: 8px;
+    z-index: 999;
+    animation: fadeUp 0.2s ease;
+  }
+  .toast.show { display: flex; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">🍦 gelato-os</div>
+    <div class="sub">매장 운영 통합 관리</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">운영</div>
+    <div class="nav-item"><span class="icon">🧪</span> 레시피 관리</div>
+    <div class="nav-item"><span class="icon">📋</span> 메뉴판</div>
+    <div class="nav-item"><span class="icon">🏭</span> 생산 기록</div>
+    <div class="nav-section">재고</div>
+    <div class="nav-item"><span class="icon">📦</span> 재고 현황</div>
+    <div class="nav-section">인력</div>
+    <div class="nav-item"><span class="icon">👥</span> 직원 관리</div>
+    <div class="nav-item"><span class="icon">📅</span> 근무표</div>
+    <div class="nav-item"><span class="icon">⏱️</span> 출퇴근</div>
+    <div class="nav-item active"><span class="icon">💴</span> 급여 & 정산</div>
+    <div class="nav-section">설정</div>
+    <div class="nav-item"><span class="icon">⚙️</span> 매장 설정</div>
+  </nav>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">급여 & 정산</div>
+    <div class="topbar-right">
+      <div class="avatar">장</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- Period bar -->
+    <div class="period-bar">
+      <div class="period-nav">
+        <button class="btn-icon" onclick="changeMonth(-1)">‹</button>
+        <div>
+          <div class="period-label" id="periodLabel">2025년 4월</div>
+          <div class="period-sub" id="periodSub">2025-04-01 ~ 2025-04-30</div>
+        </div>
+        <button class="btn-icon" onclick="changeMonth(1)">›</button>
+      </div>
+      <div class="period-right">
+        <button class="btn btn-outline">📄 전체 명세서 출력</button>
+        <button class="btn btn-primary" onclick="showToast('전체 급여 확정이 완료되었습니다.')">✓ 전체 급여 확정</button>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="summary-cards">
+      <div class="card">
+        <div class="card-label">이번 달 총 인건비</div>
+        <div class="card-value accent" id="totalCost">3,284,000</div>
+        <div class="card-sub">원</div>
+      </div>
+      <div class="card">
+        <div class="card-label">총 직원 수</div>
+        <div class="card-value">5</div>
+        <div class="card-badge badge-blue">👤 근무자 5명</div>
+      </div>
+      <div class="card">
+        <div class="card-label">정산 완료</div>
+        <div class="card-value">2</div>
+        <div class="card-badge badge-ok">✓ 확정됨</div>
+      </div>
+      <div class="card">
+        <div class="card-label">미정산</div>
+        <div class="card-value">3</div>
+        <div class="card-badge badge-warn">! 검토 필요</div>
+      </div>
+    </div>
+
+    <!-- Staff table -->
+    <div>
+      <div class="section-header">
+        <div>
+          <div class="section-title">직원별 급여 현황</div>
+          <div class="section-sub">행을 클릭하면 출퇴근 내역과 급여 계산 내역을 확인할 수 있습니다</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>직원</th>
+              <th class="right">실근무시간</th>
+              <th class="right">시급</th>
+              <th class="right">기본급</th>
+              <th class="right">주휴수당</th>
+              <th class="right">야간수당</th>
+              <th class="right">총액</th>
+              <th>상태</th>
+              <th class="right">액션</th>
+            </tr>
+          </thead>
+          <tbody id="staffTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Detail panel -->
+    <div class="detail-panel" id="detailPanel" style="display:none">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title" id="panelTitle">—</div>
+          <div class="panel-sub" id="panelSub">—</div>
+        </div>
+        <button class="panel-close" onclick="closePanel()">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="panel-left">
+          <div class="sub-section-title">출퇴근 기록 (실근무 기준)</div>
+          <table class="att-table" id="attTable"></table>
+        </div>
+        <div class="panel-right">
+          <div class="sub-section-title">급여 계산 내역</div>
+          <div id="payBreakdown"></div>
+          <div class="allowance-note" id="allowanceNote"></div>
+          <button class="confirm-btn" id="confirmBtn" onclick="confirmPayroll()"></button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const AVATARS = ['#2d5a3d','#1a4a8a','#8a3a1a','#5a1a6b','#1a6b5a'];
+const NAMES = ['김도윤','박서연','이민준','최하은','정지호'];
+const TYPES = ['정규직','아르바이트','아르바이트','정규직','아르바이트'];
+const HOURLY = [12000, 9860, 9860, 13000, 9860];
+
+// attendance per staff
+const ATT_DATA = [
+  // 김도윤
+  [
+    {date:'04/01(화)',plan:'오픈 09:00~18:00',cin:'09:02',cout:'17:58',h:8.93,diff:'ok'},
+    {date:'04/03(목)',plan:'오픈 09:00~18:00',cin:'09:15',cout:'18:10',h:9.08,diff:'late'},
+    {date:'04/07(월)',plan:'마감 14:00~22:00',cin:'14:00',cout:'21:45',h:7.75,diff:'early'},
+    {date:'04/08(화)',plan:'오픈 09:00~18:00',cin:'08:58',cout:'18:00',h:9.03,diff:'ok'},
+    {date:'04/10(목)',plan:'마감 14:00~22:00',cin:'14:03',cout:'22:00',h:7.95,diff:'ok'},
+    {date:'04/14(월)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:05',h:9.08,diff:'ok'},
+    {date:'04/15(화)',plan:'오픈 09:00~18:00',cin:'09:22',cout:'17:55',h:8.55,diff:'late'},
+    {date:'04/17(목)',plan:'마감 14:00~22:00',cin:'14:01',cout:'22:00',h:7.98,diff:'ok'},
+    {date:'04/22(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/24(목)',plan:'마감 14:00~22:00',cin:'14:05',cout:'22:00',h:7.92,diff:'late'},
+  ],
+  // 박서연
+  [
+    {date:'04/02(수)',plan:'미들 11:00~17:00',cin:'11:00',cout:'17:00',h:6.0,diff:'ok'},
+    {date:'04/05(토)',plan:'오픈 09:00~15:00',cin:'09:04',cout:'15:00',h:5.93,diff:'ok'},
+    {date:'04/09(수)',plan:'미들 11:00~17:00',cin:'10:58',cout:'17:05',h:6.12,diff:'ok'},
+    {date:'04/12(토)',plan:'오픈 09:00~15:00',cin:'09:00',cout:'14:50',h:5.83,diff:'early'},
+    {date:'04/16(수)',plan:'미들 11:00~17:00',cin:'11:00',cout:'17:00',h:6.0,diff:'ok'},
+    {date:'04/19(토)',plan:'오픈 09:00~15:00',cin:'09:00',cout:'15:00',h:6.0,diff:'ok'},
+    {date:'04/23(수)',plan:'미들 11:00~17:00',cin:'11:08',cout:'17:00',h:5.87,diff:'late'},
+    {date:'04/26(토)',plan:'오픈 09:00~15:00',cin:'09:00',cout:'15:00',h:6.0,diff:'ok'},
+  ],
+  // 이민준
+  [
+    {date:'04/04(금)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/06(일)',plan:'마감 16:00~22:00',cin:'16:10',cout:'22:00',h:5.83,diff:'late'},
+    {date:'04/11(금)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/13(일)',plan:'마감 16:00~22:00',cin:'16:00',cout:'21:50',h:5.83,diff:'early'},
+    {date:'04/18(금)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/20(일)',plan:'마감 16:00~22:00',cin:'15:58',cout:'22:00',h:6.03,diff:'ok'},
+    {date:'04/25(금)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/27(일)',plan:'마감 16:00~22:00',cin:'16:05',cout:'22:00',h:5.92,diff:'late'},
+  ],
+  // 최하은
+  [
+    {date:'04/01(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/02(수)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/07(월)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/08(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/09(수)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:02',h:9.03,diff:'ok'},
+    {date:'04/14(월)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/15(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/16(수)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/21(월)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/22(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/23(수)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/28(월)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/29(화)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+    {date:'04/30(수)',plan:'오픈 09:00~18:00',cin:'09:00',cout:'18:00',h:9.0,diff:'ok'},
+  ],
+  // 정지호
+  [
+    {date:'04/05(토)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/06(일)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/12(토)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/13(일)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/19(토)',plan:'마감 16:00~22:00',cin:'16:08',cout:'22:00',h:5.87,diff:'late'},
+    {date:'04/20(일)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/26(토)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+    {date:'04/27(일)',plan:'마감 16:00~22:00',cin:'16:00',cout:'22:00',h:6.0,diff:'ok'},
+  ],
+];
+
+// calc totals
+function calcPay(idx) {
+  const atts = ATT_DATA[idx];
+  const total_h = atts.reduce((s,a)=>s+a.h, 0);
+  const hourly = HOURLY[idx];
+  const base = Math.round(total_h * hourly);
+  // weekly holiday pay: avg weekly hours >= 15
+  const weeks = Math.ceil(atts.length / 5);
+  const avg_weekly = total_h / 4;
+  const holiday = avg_weekly >= 15 ? Math.round((total_h / 4) * hourly) : 0;
+  // night: hours after 22:00 — simplified for mock
+  const night = [0,0,1800,0,0][idx];
+  return { total_h: total_h.toFixed(1), base, holiday, night, total: base+holiday+night };
+}
+
+const STATUS = ['done','done','pending','pending','pending'];
+let selectedIdx = null;
+let confirmedSet = new Set([0,1]);
+
+function fmt(n) { return n.toLocaleString('ko-KR'); }
+
+function renderTable() {
+  const tbody = document.getElementById('staffTableBody');
+  tbody.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const pay = calcPay(i);
+    const done = confirmedSet.has(i);
+    const tr = document.createElement('tr');
+    if (selectedIdx === i) tr.classList.add('selected');
+    tr.onclick = () => openPanel(i);
+    tr.innerHTML = `
+      <td>
+        <div class="staff-info">
+          <div class="staff-avatar" style="background:${AVATARS[i]}">${NAMES[i][0]}</div>
+          <div>
+            <div class="staff-name">${NAMES[i]}</div>
+            <div class="staff-type">${TYPES[i]}</div>
+          </div>
+        </div>
+      </td>
+      <td class="right mono">${pay.total_h}h</td>
+      <td class="right mono">${fmt(HOURLY[i])}원</td>
+      <td class="right mono">${fmt(pay.base)}원</td>
+      <td class="right mono">${pay.holiday ? fmt(pay.holiday)+'원' : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td class="right mono">${pay.night ? fmt(pay.night)+'원' : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td class="right mono" style="font-weight:600">${fmt(pay.total)}원</td>
+      <td>
+        <span class="status-badge ${done ? 'badge-ok' : 'badge-warn'}">
+          <span class="status-dot" style="background:${done ? 'var(--ok)':'var(--warn)'}"></span>
+          ${done ? '확정 완료' : '미정산'}
+        </span>
+      </td>
+      <td>
+        <div class="action-group">
+          <button class="btn-sm" onclick="event.stopPropagation();showToast('명세서를 출력합니다.')">명세서</button>
+          ${done ? '' : `<button class="btn-sm primary" onclick="event.stopPropagation();quickConfirm(${i})">확정</button>`}
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function openPanel(idx) {
+  selectedIdx = idx;
+  renderTable();
+  const pay = calcPay(idx);
+  const done = confirmedSet.has(idx);
+
+  document.getElementById('panelTitle').textContent = `${NAMES[idx]} — 2025년 4월 급여 상세`;
+  document.getElementById('panelSub').textContent = `${TYPES[idx]} · 시급 ${fmt(HOURLY[idx])}원 · 실근무 ${pay.total_h}h`;
+
+  // attendance table
+  const atts = ATT_DATA[idx];
+  const attTable = document.getElementById('attTable');
+  attTable.innerHTML = `
+    <thead><tr>
+      <th>날짜</th><th>예정 시프트</th><th>실제 출근</th><th>실제 퇴근</th><th class="right">실근무</th><th>비고</th>
+    </tr></thead>
+    <tbody>
+      ${atts.map(a=>`
+        <tr>
+          <td style="font-weight:500">${a.date}</td>
+          <td style="color:var(--text-muted);font-size:11px">${a.plan}</td>
+          <td class="mono">${a.cin}</td>
+          <td class="mono">${a.cout}</td>
+          <td class="right mono">${a.h}h</td>
+          <td>
+            ${a.diff==='ok'
+              ? '<span class="diff-tag diff-ok">✅ 정상</span>'
+              : a.diff==='late'
+              ? '<span class="diff-tag diff-late">🔴 지각</span>'
+              : '<span class="diff-tag diff-early">🔵 조퇴</span>'
+            }
+          </td>
+        </tr>
+      `).join('')}
+      <tr style="background:var(--surface-2)">
+        <td colspan="4" style="font-weight:600;font-size:12px">합계</td>
+        <td class="right mono" style="font-weight:700">${pay.total_h}h</td>
+        <td></td>
+      </tr>
+    </tbody>
+  `;
+
+  // pay breakdown
+  const avg_weekly = parseFloat(pay.total_h) / 4;
+  document.getElementById('payBreakdown').innerHTML = `
+    <div class="pay-row">
+      <div class="pay-row-label">기본급 <span style="font-size:11px;color:var(--text-muted)">(${pay.total_h}h × ${fmt(HOURLY[idx])}원)</span></div>
+      <div class="pay-row-value">${fmt(pay.base)}원</div>
+    </div>
+    <div class="pay-row">
+      <div class="pay-row-label">주휴수당 <span style="font-size:11px;color:var(--text-muted)">(주평균 ${avg_weekly.toFixed(1)}h)</span></div>
+      <div class="pay-row-value">${pay.holiday ? fmt(pay.holiday)+'원' : '—'}</div>
+    </div>
+    <div class="pay-row">
+      <div class="pay-row-label">야간수당 <span style="font-size:11px;color:var(--text-muted)">(22시 이후)</span></div>
+      <div class="pay-row-value">${pay.night ? fmt(pay.night)+'원' : '—'}</div>
+    </div>
+    <div class="pay-total">
+      <div class="pay-total-label">최종 지급액</div>
+      <div class="pay-total-value">${fmt(pay.total)}원</div>
+    </div>
+  `;
+
+  document.getElementById('allowanceNote').innerHTML =
+    pay.holiday
+      ? `📌 주평균 근무시간 ${avg_weekly.toFixed(1)}h ≥ 15h → 주휴수당 발생<br>※ 주휴수당 수식은 미결 사항으로 확정 전 검토 필요`
+      : `📌 주평균 근무시간 ${avg_weekly.toFixed(1)}h < 15h → 주휴수당 미발생`;
+
+  const btn = document.getElementById('confirmBtn');
+  if (done) {
+    btn.textContent = '✓ 급여 확정 완료';
+    btn.classList.add('done');
+    btn.onclick = null;
+  } else {
+    btn.textContent = '✓ 급여 확정 (payroll INSERT)';
+    btn.classList.remove('done');
+    btn.onclick = confirmPayroll;
+  }
+
+  const panel = document.getElementById('detailPanel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closePanel() {
+  document.getElementById('detailPanel').style.display = 'none';
+  selectedIdx = null;
+  renderTable();
+}
+
+function confirmPayroll() {
+  if (selectedIdx === null) return;
+  confirmedSet.add(selectedIdx);
+  renderTable();
+  // re-open to update button state
+  openPanel(selectedIdx);
+  showToast(`${NAMES[selectedIdx]} 급여가 확정되었습니다.`);
+  // update summary
+  document.querySelector('.summary-cards .card:nth-child(3) .card-value').textContent = confirmedSet.size;
+  document.querySelector('.summary-cards .card:nth-child(4) .card-value').textContent = 5 - confirmedSet.size;
+}
+
+function quickConfirm(idx) {
+  confirmedSet.add(idx);
+  renderTable();
+  if (selectedIdx === idx) openPanel(idx);
+  showToast(`${NAMES[idx]} 급여가 확정되었습니다.`);
+  document.querySelector('.summary-cards .card:nth-child(3) .card-value').textContent = confirmedSet.size;
+  document.querySelector('.summary-cards .card:nth-child(4) .card-value').textContent = 5 - confirmedSet.size;
+}
+
+let currentMonth = 4;
+let currentYear = 2025;
+function changeMonth(delta) {
+  currentMonth += delta;
+  if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+  if (currentMonth < 1) { currentMonth = 12; currentYear--; }
+  const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+  document.getElementById('periodLabel').textContent = `${currentYear}년 ${currentMonth}월`;
+  document.getElementById('periodSub').textContent =
+    `${currentYear}-${String(currentMonth).padStart(2,'0')}-01 ~ ${currentYear}-${String(currentMonth).padStart(2,'0')}-${lastDay}`;
+  closePanel();
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = '✓ ' + msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+renderTable();
+</script>
+</body>
+</html>

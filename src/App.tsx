@@ -17,6 +17,7 @@ import {
   StaffAttendancePage,
   StaffChecklistPage,
 } from '@/pages/StaffPage'
+import { PayrollPage } from '@/pages/PayrollPage'
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="attendance" element={<StaffAttendancePage />} />
           <Route path="checklist" element={<StaffChecklistPage />} />
         </Route>
+        <Route path="payroll" element={<PayrollPage />} />
       </Route>
       <Route
         path="/login"

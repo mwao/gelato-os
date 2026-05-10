@@ -292,6 +292,7 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/staff/attendance')) return '인력 관리 · 출퇴근'
   if (pathname.startsWith('/staff/checklist')) return '인력 관리 · 체크리스트'
   if (pathname.startsWith('/staff')) return '인력 관리'
+  if (pathname.startsWith('/payroll')) return '급여 & 정산'
   return '대시보드'
 }
 
@@ -330,6 +331,9 @@ export function AppLayout() {
     queryClient.removeQueries({ queryKey: ['checklistItems'] })
     queryClient.removeQueries({ queryKey: ['checklistLogsToday'] })
     queryClient.removeQueries({ queryKey: ['staffCalendar'] })
+    queryClient.removeQueries({ queryKey: ['payroll'] })
+    queryClient.removeQueries({ queryKey: ['attendanceWorkSummary'] })
+    queryClient.removeQueries({ queryKey: ['attendancePeriodDetail'] })
     navigate('/login', { replace: true })
   }
 
@@ -446,7 +450,14 @@ export function AppLayout() {
             체크리스트
           </NavLink>
         </div>
-        <NavSoon icon={<IconPayroll />} label="급여 및 정산" />
+        <NavLink
+          to="/payroll"
+          className={navLinkClass}
+          onClick={() => setMobileNavOpen(false)}
+        >
+          <IconPayroll />
+          급여 & 정산
+        </NavLink>
       </aside>
 
       <div

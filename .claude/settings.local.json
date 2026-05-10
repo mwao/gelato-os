@@ -3,7 +3,8 @@
     "allow": [
       "Bash(git -C \"C:/Users/jjungss95/Documents/__Obsidian/VibeCoding\" ls-files --cached)",
       "Bash(git *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)"
     ]
   }
 }

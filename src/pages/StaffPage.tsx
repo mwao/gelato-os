@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 import {
   useAttendanceList,
   useCorrectAttendance,
+  useDeleteAttendance,
   describeBaselineSyncSummary,
   useGenerateAttendanceBaseline,
   usePunchIn,
@@ -131,8 +132,18 @@ export function StaffChecklistPage() {
 
 function StaffProfileSection() {
   const { data: staffList, isLoading, isError, error, refetch } = useStaffList()
-  const [view, setView] = useState<'list' | 'detail'>('list')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+
+  function openDetail(id: string) {
+    setSelectedId((prev) => (prev === id ? null : id))
+    if (selectedId !== id) {
+      setTimeout(
+        () => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
+        80,
+      )
+    }
+  }
 
   if (isLoading) return <AuthLoading />
   if (isError) {
@@ -155,31 +166,12 @@ function StaffProfileSection() {
     )
   }
 
-  if (view === 'detail' && selectedId) {
-    return (
-      <StaffDetailForm
-        staffId={selectedId}
-        onClose={() => {
-          setView('list')
-          setSelectedId(null)
-        }}
-        onSaved={() => {
-          setView('list')
-          setSelectedId(null)
-        }}
-      />
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between gap-2">
         <Button
           type="button"
-          onClick={() => {
-            setSelectedId('new')
-            setView('detail')
-          }}
+          onClick={() => openDetail('new')}
         >
           새 직원
         </Button>
@@ -187,7 +179,7 @@ function StaffProfileSection() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">직원 목록</CardTitle>
-          <CardDescription>이름을 누르면 상세에서 수정할 수 있습니다.</CardDescription>
+          <CardDescription>이름을 누르면 아래에서 바로 수정할 수 있습니다.</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left text-sm">
@@ -201,15 +193,18 @@ function StaffProfileSection() {
             </thead>
             <tbody>
               {staffList?.map((s) => (
-                <tr key={s.id} className="border-b border-border/40">
+                <tr
+                  key={s.id}
+                  className={cn(
+                    'border-b border-border/40 transition-colors',
+                    selectedId === s.id && 'bg-primary/5',
+                  )}
+                >
                   <td className="py-2">
                     <button
                       type="button"
                       className="font-medium text-primary underline-offset-4 hover:underline"
-                      onClick={() => {
-                        setSelectedId(s.id)
-                        setView('detail')
-                      }}
+                      onClick={() => openDetail(s.id)}
                     >
                       {s.name}
                     </button>
@@ -228,6 +223,17 @@ function StaffProfileSection() {
           ) : null}
         </CardContent>
       </Card>
+
+      {/* 인라인 상세 패널 */}
+      {selectedId ? (
+        <div ref={detailRef} className="animate-in fade-in slide-in-from-top-2 duration-150">
+          <StaffDetailForm
+            staffId={selectedId}
+            onClose={() => setSelectedId(null)}
+            onSaved={() => setSelectedId(null)}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -450,7 +456,7 @@ function StaffDetailForm({
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            ← 목록
+            ✕ 닫기
           </Button>
           <CardTitle className="text-base">{isNew ? '새 직원' : '직원 상세'}</CardTitle>
         </div>
@@ -1406,6 +1412,15 @@ function workDurationLabel(
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
+/** 행 전체 배경 틴트 — 상태를 한눈에 파악하기 위해 */
+function rowTintClass(inStatus: AttendanceLabel, outStatus: AttendanceLabel): string {
+  if (inStatus === '지각' || outStatus === '조퇴') return 'bg-destructive/[0.04]'
+  if (outStatus === '연장근무') return 'bg-amber-500/[0.05]'
+  if (inStatus === '조기출근') return 'bg-sky-500/[0.04]'
+  if (inStatus === '정상' && outStatus === '정상') return 'bg-emerald-500/[0.03]'
+  return ''
+}
+
 function attendanceLabelClass(label: AttendanceLabel): string {
   const base =
     'inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none'
@@ -1452,6 +1467,7 @@ function PersonRow({
   const punchIn = usePunchIn()
   const punchOut = usePunchOut()
   const correctAttendance = useCorrectAttendance()
+  const deleteAttendance = useDeleteAttendance()
   const [punchError, setPunchError] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [editIn, setEditIn] = useState('')
@@ -1550,38 +1566,80 @@ function PersonRow({
     }
   }
 
-  const cell = 'px-2 py-1.5 align-middle'
+  async function handleDeleteRecord() {
+    if (!editableId) return
+    if (!window.confirm(`${staffName}의 출퇴근 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`))
+      return
+    setEditError(null)
+    try {
+      await deleteAttendance.mutateAsync(editableId)
+      setEditMode(false)
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : '삭제에 실패했습니다.')
+    }
+  }
+
+  const cell = 'px-3 py-2.5 align-middle'
   const mono = 'font-mono tabular-nums text-[12px]'
   const muted = 'text-muted-foreground'
 
   return (
     <>
-      <tr className="border-border/50 border-b">
+      <tr className={cn('border-border/40 border-b transition-colors', rowTintClass(inStatus, outStatus))}>
+        {/* 근무자 */}
         <td className={`${cell} text-sm font-medium`}>{staffName}</td>
+
+        {/* 근태 */}
         <td className={cell}>
-          <span className={attendanceLabelClass(plannedStatus)}>
-            {plannedStatus}
-          </span>
+          <span className={attendanceLabelClass(plannedStatus)}>{plannedStatus}</span>
         </td>
-        <td className={`${cell} ${mono} ${muted}`}>{plannedStartHm ?? '-'}</td>
-        <td className={`${cell} ${mono}`}>{actualInHm ?? <span className={muted}>-</span>}</td>
+
+        {/* 출근 — 예정/실제/상태 합산 */}
         <td className={cell}>
-          {inStatus === '-' ? (
-            <span className={muted}>-</span>
-          ) : (
-            <span className={attendanceLabelClass(inStatus)}>{inStatus}</span>
-          )}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 shrink-0 text-[10px] font-medium text-muted-foreground/70">예정</span>
+              <span className={`${mono} text-xs text-muted-foreground`}>
+                {plannedStartHm ?? '—'}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="w-5 shrink-0 text-[10px] font-medium text-muted-foreground/70">실제</span>
+              <span className={`${mono} text-[13px] font-semibold`}>
+                {actualInHm ?? <span className="font-normal text-muted-foreground">—</span>}
+              </span>
+              {inStatus !== '-' ? (
+                <span className={attendanceLabelClass(inStatus)}>{inStatus}</span>
+              ) : null}
+            </div>
+          </div>
         </td>
-        <td className={`${cell} ${mono} ${muted}`}>{plannedEndHm ?? '-'}</td>
-        <td className={`${cell} ${mono}`}>{actualOutHm ?? <span className={muted}>-</span>}</td>
+
+        {/* 퇴근 — 예정/실제/상태 합산 */}
         <td className={cell}>
-          {outStatus === '-' ? (
-            <span className={muted}>-</span>
-          ) : (
-            <span className={attendanceLabelClass(outStatus)}>{outStatus}</span>
-          )}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 shrink-0 text-[10px] font-medium text-muted-foreground/70">예정</span>
+              <span className={`${mono} text-xs text-muted-foreground`}>
+                {plannedEndHm ?? '—'}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="w-5 shrink-0 text-[10px] font-medium text-muted-foreground/70">실제</span>
+              <span className={`${mono} text-[13px] font-semibold`}>
+                {actualOutHm ?? <span className="font-normal text-muted-foreground">—</span>}
+              </span>
+              {outStatus !== '-' ? (
+                <span className={attendanceLabelClass(outStatus)}>{outStatus}</span>
+              ) : null}
+            </div>
+          </div>
         </td>
+
+        {/* 근무시간 */}
         <td className={`${cell} ${mono} ${muted}`}>{duration}</td>
+
+        {/* 조작 */}
         <td className={cell}>
           <div className="flex flex-wrap justify-end gap-1">
             {showPunch ? (
@@ -1600,9 +1658,7 @@ function PersonRow({
                   type="button"
                   variant="secondary"
                   className="h-6 px-2 text-xs"
-                  disabled={
-                    punchOut.isPending || !hasActualPunchIn || hasActualPunchOut
-                  }
+                  disabled={punchOut.isPending || !hasActualPunchIn || hasActualPunchOut}
                   onClick={() => void handlePunchOut()}
                 >
                   퇴근
@@ -1624,7 +1680,7 @@ function PersonRow({
       </tr>
       {editMode ? (
         <tr className="bg-muted/20 border-border/50 border-b">
-          <td colSpan={10} className="px-2 py-2">
+          <td colSpan={6} className="px-2 py-2">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-muted-foreground">{staffName} 시각 수정</span>
               <div className="flex items-center gap-1.5">
@@ -1649,7 +1705,7 @@ function PersonRow({
                 size="sm"
                 type="button"
                 className="h-7 px-2 text-xs"
-                disabled={correctAttendance.isPending}
+                disabled={correctAttendance.isPending || deleteAttendance.isPending}
                 onClick={() => void handleSaveEdit()}
               >
                 저장
@@ -1663,6 +1719,16 @@ function PersonRow({
               >
                 취소
               </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="destructive"
+                className="h-7 px-2 text-xs"
+                disabled={correctAttendance.isPending || deleteAttendance.isPending || !editableId}
+                onClick={() => void handleDeleteRecord()}
+              >
+                삭제
+              </Button>
               {editError ? (
                 <span className="text-destructive">{editError}</span>
               ) : null}
@@ -1672,7 +1738,7 @@ function PersonRow({
       ) : null}
       {punchError ? (
         <tr>
-          <td colSpan={10} className="text-destructive px-2 py-1 text-xs">
+          <td colSpan={6} className="text-destructive px-2 py-1 text-xs">
             {punchError}
           </td>
         </tr>
@@ -1683,18 +1749,14 @@ function PersonRow({
 
 function AttendanceTableHead() {
   const th =
-    'border-border/50 border-b px-2 py-1.5 text-left text-xs font-medium text-muted-foreground'
+    'border-border/50 border-b bg-muted/30 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground'
   return (
     <thead>
       <tr>
         <th className={th}>근무자</th>
         <th className={th}>근태</th>
-        <th className={th}>출근예정</th>
-        <th className={th}>출근</th>
-        <th className={th}>출근상태</th>
-        <th className={th}>퇴근예정</th>
-        <th className={th}>퇴근</th>
-        <th className={th}>퇴근상태</th>
+        <th className={th}>출근 (예정 / 실제)</th>
+        <th className={th}>퇴근 (예정 / 실제)</th>
         <th className={th}>근무시간</th>
         <th className={`${th} text-right`}>조작</th>
       </tr>
@@ -1823,7 +1885,7 @@ function StaffAttendanceSection() {
         <section>
           <p className="mb-3 text-sm font-medium">오늘 ({todayKey})</p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-sm">
+            <table className="w-full min-w-[580px] border-collapse text-sm">
               <AttendanceTableHead />
               <tbody>
                 {(staffList ?? []).map((s) => {
@@ -1928,7 +1990,7 @@ function StaffAttendanceSection() {
                       ) : null}
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[860px] border-collapse text-sm">
+                      <table className="w-full min-w-[580px] border-collapse text-sm">
                         <AttendanceTableHead />
                         <tbody>
                           {(staffList ?? []).map((s) => (

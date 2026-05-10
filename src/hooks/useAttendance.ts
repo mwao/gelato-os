@@ -413,6 +413,30 @@ export async function generateAttendanceBaselineForWeek(
   return summary
 }
 
+export function useDeleteAttendance() {
+  const queryClient = useQueryClient()
+  const { data: store } = useStore()
+  const storeId = store?.id
+
+  return useMutation({
+    mutationFn: async (attendanceId: string) => {
+      if (!storeId) throw new Error('매장 정보가 없습니다.')
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('id', attendanceId)
+        .eq('store_id', storeId)
+      if (error) throw error
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['attendance'],
+        refetchType: 'active',
+      })
+    },
+  })
+}
+
 export function useGenerateAttendanceBaseline() {
   const queryClient = useQueryClient()
   const { data: store } = useStore()
