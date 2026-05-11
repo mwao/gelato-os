@@ -1764,6 +1764,156 @@ function AttendanceTableHead() {
   )
 }
 
+function TodayGanttChart({
+  staffList,
+  plannedMap,
+  todayGroup,
+  todayKey,
+}: {
+  staffList: Array<{ id: string; name: string }>
+  plannedMap: Map<string, PlannedWorkDetail>
+  todayGroup: { blocks: StaffDayBlock[] } | undefined
+  todayKey: string
+}) {
+  const scheduled = staffList.filter((s) => plannedMap.has(`${s.id}_${todayKey}`))
+  if (scheduled.length === 0) return null
+
+  const allMins = scheduled.flatMap((s) => {
+    const p = plannedMap.get(`${s.id}_${todayKey}`)!
+    return [hmToMin(p.startHm), hmToMin(p.endHm)].filter((m): m is number => m != null)
+  })
+  if (allMins.length === 0) return null
+
+  const minHour = Math.floor(Math.min(...allMins) / 60)
+  const maxHour = Math.ceil(Math.max(...allMins) / 60)
+  const chartStartMin = minHour * 60
+  const totalMins = (maxHour - minHour) * 60
+  if (totalMins <= 0) return null
+
+  const pct = (m: number) =>
+    Math.max(0, Math.min(100, ((m - chartStartMin) / totalMins) * 100))
+
+  const hourCount = maxHour - minHour
+
+  const now = new Date()
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const showNowLine = nowMin >= chartStartMin && nowMin <= chartStartMin + totalMins
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl border border-border/60 bg-card">
+      <div className="flex">
+        {/* 이름 열 */}
+        <div className="w-[68px] shrink-0 border-r border-border/40">
+          <div className="h-7 border-b border-border/40 bg-muted/30" />
+          {scheduled.map((s) => (
+            <div
+              key={s.id}
+              className="flex h-10 items-center border-b border-border/15 px-2 last:border-b-0"
+            >
+              <span className="truncate text-xs font-medium">{s.name}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 타임라인 */}
+        <div className="relative min-w-0 flex-1 overflow-x-auto">
+          <div className="min-w-[320px]">
+            {/* 시간 헤더 */}
+            <div className="flex h-7 border-b border-border/40 bg-muted/30">
+              {Array.from({ length: hourCount }, (_, i) => (
+                <div key={i} className="flex-1 border-l border-border/30 px-1">
+                  <span className="text-[10px] leading-7 text-muted-foreground">
+                    {minHour + i}시
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* 직원 행 */}
+            {scheduled.map((s) => {
+              const planned = plannedMap.get(`${s.id}_${todayKey}`)!
+              const block = todayGroup?.blocks.find((b) => b.staff_id === s.id)
+              const actualIn = block?.actual?.check_in ?? null
+              const actualOut = block?.actual?.check_out ?? null
+
+              const ps = hmToMin(planned.startHm)
+              const pe = hmToMin(planned.endHm)
+              const asm = actualIn ? isoLocalMin(actualIn) : null
+              const aem = actualOut ? isoLocalMin(actualOut) : null
+
+              const pLeft = ps != null ? pct(ps) : null
+              const pWidth = ps != null && pe != null ? pct(pe) - pct(ps) : null
+              const aLeft = asm != null ? pct(asm) : null
+              const aWidth = asm != null && aem != null ? pct(aem) - pct(asm) : null
+
+              return (
+                <div
+                  key={s.id}
+                  className="relative h-[52px] border-b border-border/15 last:border-b-0"
+                >
+                  {/* 격자 선 */}
+                  {Array.from({ length: hourCount - 1 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="pointer-events-none absolute inset-y-0 w-px bg-border/25"
+                      style={{ left: `${pct((minHour + i + 1) * 60)}%` }}
+                    />
+                  ))}
+
+                  {/* 예정 바 — 상단 절반, 회색 아웃라인 */}
+                  {pLeft != null && pWidth != null && pWidth > 0 && (
+                    <div
+                      className="absolute top-[5px] h-[18px] rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/30"
+                      style={{ left: `${pLeft}%`, width: `${pWidth}%` }}
+                    />
+                  )}
+
+                  {/* 실제 바 — 하단 절반, 초록 솔리드 */}
+                  {aLeft != null && (
+                    <div
+                      className="absolute bottom-[5px] h-[18px] rounded bg-primary/70"
+                      style={{
+                        left: `${aLeft}%`,
+                        width: aWidth != null && aWidth > 0 ? `${aWidth}%` : '4px',
+                      }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+
+            {/* 현재 시각 선 */}
+            {showNowLine && (
+              <div
+                className="pointer-events-none absolute top-7 bottom-0 w-[1.5px] bg-rose-500/60"
+                style={{ left: `${pct(nowMin)}%` }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 범례 */}
+      <div className="flex items-center gap-4 border-t border-border/30 bg-muted/10 px-4 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <div className="h-3.5 w-7 rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/30" />
+          <span className="text-[10px] text-muted-foreground">예정</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-7 rounded bg-primary/70" />
+          <span className="text-[10px] text-muted-foreground">실제</span>
+        </div>
+        {showNowLine && (
+          <div className="flex items-center gap-1.5">
+            <div className="h-3.5 w-[1.5px] rounded-full bg-rose-500/60" />
+            <span className="text-[10px] text-muted-foreground">현재 시각</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function StaffAttendanceSection() {
   const todayKey = formatYmdLocal(new Date())
   // 기본 기간: 이번 주 월~일 (오늘이 포함된 주)
@@ -1884,6 +2034,12 @@ function StaffAttendanceSection() {
         {/* 1) 오늘 — 기간 필터와 무관하게 항상 상단 고정 */}
         <section>
           <p className="mb-3 text-sm font-medium">오늘 ({todayKey})</p>
+          <TodayGanttChart
+            staffList={staffList ?? []}
+            plannedMap={plannedMap}
+            todayGroup={groupedToday.find((d) => d.dateKey === todayKey)}
+            todayKey={todayKey}
+          />
           <div className="overflow-x-auto">
             <table className="w-full min-w-[580px] border-collapse text-sm">
               <AttendanceTableHead />
