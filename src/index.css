@@ -27,6 +27,33 @@
   }
 }
 
+/* ── 인쇄 전용 — 「전체 명세서 출력」용 ─────────────────────────────────── */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm 10mm;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  /* 화면 모든 요소 숨김 → `.print-sheet` 만 렌더링 */
+  body * {
+    visibility: hidden !important;
+  }
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible !important;
+  }
+  .print-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    color: #000;
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;

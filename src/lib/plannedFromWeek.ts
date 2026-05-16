@@ -1,96 +1,52 @@
-import type { WeekSlot } from '@/hooks/useWeekSchedule'
-import {
-  addDaysLocal,
-  DEFAULT_SHIFT_TIME_SETTINGS,
-  formatPlannedSlotRange,
-  formatYmdLocal,
-  parseYmdLocal,
-  SHIFT_LABEL,
-  shiftForSlotIndex,
-  type ShiftTimeSettings,
-  WEEK_SLOT_LABELS,
-} from '@/lib/dateUtils'
+import { DEFAULT_SHIFT_TIME_SETTINGS, SHIFT_LABEL } from '@/lib/dateUtils'
+import { getShiftTimeForDay, type StoreShiftColumns } from '@/lib/shiftResolver'
+
 export type PlannedWorkDetail = {
   rangeLabel: string
-  /** 오픈/미들/마감 구간명 (슬롯이 구간 밖이면 '근무') */
+  /** 오픈/미들/마감 구간명 */
   bandLabel: string
-  /** 첫 슬롯 시각 HH:mm (지각 비교용) */
+  /** 시작 시각 HH:mm (지각 비교용) */
   startHm: string
-  /** 마지막 슬롯 종료 시각 HH:mm (근무시간 초과 비교용) */
+  /** 종료 시각 HH:mm (근무시간 초과 비교용) */
   endHm: string
 }
 
-function bandLabelForFirstSlot(
-  firstSlotIndex: number,
-  settings: ShiftTimeSettings,
-): string {
-  const code = shiftForSlotIndex(firstSlotIndex, settings)
-  if (code) return SHIFT_LABEL[code] ?? '근무'
-  return '근무'
-}
-
-export function plannedDetailForStaffDay(
-  slots: WeekSlot[],
-  weekStart: string,
-  staffId: string,
-  workDate: string,
-  settings: ShiftTimeSettings,
-): PlannedWorkDetail | null {
-  const base = parseYmdLocal(weekStart)
-  const target = parseYmdLocal(workDate)
-  const dayIdx = Math.round(
-    (target.setHours(0, 0, 0, 0) - base.setHours(0, 0, 0, 0)) / 86400000,
-  )
-  if (dayIdx < 0 || dayIdx > 6) return null
-
-  const indices: number[] = []
-  for (const slot of slots) {
-    if (slot.day_index !== dayIdx) continue
-    if (!slot.assignees.some((a) => a.staff_id === staffId)) continue
-    indices.push(slot.slot_index)
-  }
-  if (!indices.length) return null
-  const sorted = [...new Set(indices)].sort((a, b) => a - b)
-  const first = sorted[0]!
-  const last = sorted[sorted.length - 1]!
-  const lastLabel = WEEK_SLOT_LABELS[last] ?? '17:00'
-  const [lh, lm] = lastLabel.split(':').map((x) => parseInt(x, 10))
-  const endHm = `${String((Number.isNaN(lh) ? 17 : lh) + 1).padStart(2, '0')}:${String(
-    Number.isNaN(lm) ? 0 : lm,
-  ).padStart(2, '0')}`
-  return {
-    rangeLabel: formatPlannedSlotRange(sorted),
-    bandLabel: bandLabelForFirstSlot(first, settings),
-    startHm: WEEK_SLOT_LABELS[first] ?? '09:00',
-    endHm,
-  }
-}
-
-/** 여러 주의 슬롯을 합쳐 (staffId, workDate) → 예정 상세 */
-export function mergePlannedByStaffDate(
-  weekStarts: string[],
-  slotsPerWeek: (WeekSlot[] | undefined)[],
-  settings: ShiftTimeSettings = DEFAULT_SHIFT_TIME_SETTINGS,
+/**
+ * v1.5.3 A안 완성: `schedule_month_cells` 행 배열을 (staffId, workDate) → 예정 상세로 변환.
+ * 시각 결정은 `getShiftTimeForDay` 사용 — cell 예외 > 매장 기본 > DEFAULT.
+ */
+export function plannedFromMonthCells(
+  cells: Array<{
+    staff_id: string
+    work_date: string
+    shift: 'open' | 'middle' | 'close'
+    start_time: string | null
+    end_time: string | null
+  }>,
+  store: StoreShiftColumns | null,
 ): Map<string, PlannedWorkDetail> {
   const map = new Map<string, PlannedWorkDetail>()
-  for (let i = 0; i < weekStarts.length; i++) {
-    const ws = weekStarts[i]
-    const slots = slotsPerWeek[i]
-    if (!ws || !slots?.length) continue
-    const base = parseYmdLocal(ws)
-    const seen = new Set<string>()
-    for (const slot of slots) {
-      const ymd = formatYmdLocal(addDaysLocal(base, slot.day_index))
-      for (const a of slot.assignees) {
-        const key = `${a.staff_id}_${ymd}`
-        if (seen.has(key)) continue
-        const det = plannedDetailForStaffDay(slots, ws, a.staff_id, ymd, settings)
-        if (det) {
-          map.set(key, det)
-          seen.add(key)
-        }
-      }
-    }
+  const effectiveStore: StoreShiftColumns = store ?? {
+    shift_open_start: DEFAULT_SHIFT_TIME_SETTINGS.open.start,
+    shift_open_end: DEFAULT_SHIFT_TIME_SETTINGS.open.end,
+    shift_middle_start: DEFAULT_SHIFT_TIME_SETTINGS.middle.start,
+    shift_middle_end: DEFAULT_SHIFT_TIME_SETTINGS.middle.end,
+    shift_close_start: DEFAULT_SHIFT_TIME_SETTINGS.close.start,
+    shift_close_end: DEFAULT_SHIFT_TIME_SETTINGS.close.end,
+  }
+  for (const c of cells) {
+    const t = getShiftTimeForDay(
+      c.shift,
+      { start_time: c.start_time, end_time: c.end_time },
+      effectiveStore,
+    )
+    const key = `${c.staff_id}_${c.work_date}`
+    map.set(key, {
+      rangeLabel: `${t.startTime}~${t.endTime}`,
+      bandLabel: SHIFT_LABEL[c.shift] ?? '근무',
+      startHm: t.startTime,
+      endHm: t.endTime,
+    })
   }
   return map
 }

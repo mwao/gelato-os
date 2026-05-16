@@ -11,6 +11,8 @@ export type StaffListRow = {
   name: string
   phone: string | null
   hourly_rate: number
+  base_salary: number | null
+  monthly_off_days: number | null
   hire_date: string | null
   health_cert_expires: string | null
   employment_type_id: string | null
@@ -49,6 +51,13 @@ function mapStaffList(raw: Record<string, unknown>): StaffListRow {
     name: String(raw.name),
     phone: raw.phone == null ? null : String(raw.phone),
     hourly_rate: num(raw.hourly_rate),
+    base_salary: raw.base_salary == null ? null : num(raw.base_salary),
+    monthly_off_days:
+      raw.monthly_off_days == null
+        ? null
+        : typeof raw.monthly_off_days === 'number'
+          ? raw.monthly_off_days
+          : parseInt(String(raw.monthly_off_days), 10) || null,
     hire_date: raw.hire_date == null ? null : String(raw.hire_date),
     health_cert_expires:
       raw.health_cert_expires == null ? null : String(raw.health_cert_expires),
@@ -74,7 +83,7 @@ async function fetchStaffList(storeId: string): Promise<StaffListRow[]> {
     .from('staff')
     .select(
       `
-      id, store_id, name, phone, hourly_rate, hire_date, health_cert_expires, employment_type_id,
+      id, store_id, name, phone, hourly_rate, base_salary, monthly_off_days, hire_date, health_cert_expires, employment_type_id,
       employment_types ( label )
     `,
     )
@@ -93,7 +102,7 @@ async function fetchStaffDetail(
     .from('staff')
     .select(
       `
-      id, store_id, name, phone, hourly_rate, hire_date, health_cert_expires, employment_type_id,
+      id, store_id, name, phone, hourly_rate, base_salary, monthly_off_days, hire_date, health_cert_expires, employment_type_id,
       employment_types ( label ),
       staff_default_shifts ( id, staff_id, day_of_week, shift )
     `,
@@ -142,6 +151,8 @@ export type StaffInput = {
   name: string
   phone: string | null
   hourly_rate: number
+  base_salary: number | null
+  monthly_off_days: number | null
   employment_type_id: string | null
   hire_date: string | null
   health_cert_expires: string | null
@@ -162,12 +173,14 @@ export function useCreateStaff() {
           name: input.name.trim(),
           phone: input.phone?.trim() || null,
           hourly_rate: input.hourly_rate,
+          base_salary: input.base_salary,
+          monthly_off_days: input.monthly_off_days,
           employment_type_id: input.employment_type_id,
           hire_date: input.hire_date,
           health_cert_expires: input.health_cert_expires,
         })
         .select(
-          'id, store_id, name, phone, hourly_rate, hire_date, health_cert_expires, employment_type_id',
+          'id, store_id, name, phone, hourly_rate, base_salary, monthly_off_days, hire_date, health_cert_expires, employment_type_id',
         )
         .single()
 
@@ -198,6 +211,8 @@ export function useUpdateStaff() {
           name: input.name.trim(),
           phone: input.phone?.trim() || null,
           hourly_rate: input.hourly_rate,
+          base_salary: input.base_salary,
+          monthly_off_days: input.monthly_off_days,
           employment_type_id: input.employment_type_id,
           hire_date: input.hire_date,
           health_cert_expires: input.health_cert_expires,

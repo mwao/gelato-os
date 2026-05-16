@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useStore } from '@/hooks/useStore'
+import type { PayMode } from '@/hooks/useEmploymentTypes'
+import type { PayWarning } from '@/lib/payroll'
 import { supabase } from '@/lib/supabase'
 
 export type PayrollRow = {
@@ -7,11 +9,16 @@ export type PayrollRow = {
   staff_id: string
   period_start: string
   period_end: string
+  pay_mode: PayMode | null
   base_pay: number
+  bonus: number
   allowances: number
   deductions: number
   total: number
   work_minutes: number
+  off_days_used: number | null
+  off_days_required: number | null
+  off_days_warning: PayWarning
   note: string | null
   confirmed: boolean
 }
@@ -24,17 +31,32 @@ function mapPayrollRow(raw: Record<string, unknown>): PayrollRow | null {
   if (!id || !staff_id || !period_start || !period_end) return null
 
   const num = (v: unknown) => (typeof v === 'number' ? v : parseFloat(String(v ?? '0')) || 0)
+  const intOrNull = (v: unknown) =>
+    v == null ? null : typeof v === 'number' ? v : parseInt(String(v), 10) || 0
+  const payMode: PayMode | null =
+    raw.pay_mode === 'salary' ? 'salary' : raw.pay_mode === 'hourly' ? 'hourly' : null
+  const warning: PayWarning =
+    raw.off_days_warning === 'shortage'
+      ? 'shortage'
+      : raw.off_days_warning === 'excess'
+        ? 'excess'
+        : null
 
   return {
     id,
     staff_id,
     period_start,
     period_end,
+    pay_mode: payMode,
     base_pay: num(raw.base_pay),
+    bonus: num(raw.bonus),
     allowances: num(raw.allowances),
     deductions: num(raw.deductions),
     total: num(raw.total),
     work_minutes: typeof raw.work_minutes === 'number' ? raw.work_minutes : 0,
+    off_days_used: intOrNull(raw.off_days_used),
+    off_days_required: intOrNull(raw.off_days_required),
+    off_days_warning: warning,
     note: raw.note == null ? null : String(raw.note),
     confirmed: Boolean(raw.confirmed),
   }
@@ -50,7 +72,9 @@ export function usePayrollList(periodStart: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payroll')
-        .select('id, staff_id, period_start, period_end, base_pay, allowances, deductions, total, work_minutes, note, confirmed')
+        .select(
+          'id, staff_id, period_start, period_end, pay_mode, base_pay, bonus, allowances, deductions, total, work_minutes, off_days_used, off_days_required, off_days_warning, note, confirmed',
+        )
         .eq('store_id', storeId!)
         .eq('period_start', periodStart)
         .order('created_at')
@@ -119,16 +143,23 @@ export function useUpsertPayroll() {
       staffId: string
       periodStart: string
       periodEnd: string
+      payMode: PayMode
       basePay: number
+      bonus?: number
       allowances: number
-      deductions: number
+      deductions?: number
       workMinutes: number
+      offDaysUsed?: number | null
+      offDaysRequired?: number | null
+      offDaysWarning?: PayWarning
       note?: string | null
       confirmed?: boolean
     }) => {
       if (!storeId) throw new Error('매장 정보가 없습니다.')
 
-      const total = input.basePay + input.allowances - input.deductions
+      const bonus = input.bonus ?? 0
+      const deductions = input.deductions ?? 0
+      const total = input.basePay + bonus + input.allowances - deductions
 
       const { error } = await supabase.from('payroll').upsert(
         {
@@ -136,11 +167,16 @@ export function useUpsertPayroll() {
           staff_id: input.staffId,
           period_start: input.periodStart,
           period_end: input.periodEnd,
+          pay_mode: input.payMode,
           base_pay: input.basePay,
+          bonus,
           allowances: input.allowances,
-          deductions: input.deductions,
+          deductions,
           total,
           work_minutes: input.workMinutes,
+          off_days_used: input.offDaysUsed ?? null,
+          off_days_required: input.offDaysRequired ?? null,
+          off_days_warning: input.offDaysWarning ?? null,
           note: input.note ?? null,
           confirmed: input.confirmed ?? false,
           updated_at: new Date().toISOString(),

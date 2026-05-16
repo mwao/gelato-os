@@ -11,6 +11,9 @@ export type MonthCellRow = {
   staff_name: string
   work_date: string
   shift: ShiftCode
+  /** v1.5 일별 예외 시각 — NULL이면 staff override 또는 매장 기본값 사용 */
+  start_time: string | null
+  end_time: string | null
 }
 
 function mapCell(raw: Record<string, unknown>): MonthCellRow | null {
@@ -27,6 +30,8 @@ function mapCell(raw: Record<string, unknown>): MonthCellRow | null {
     staff_name,
     work_date: String(raw.work_date),
     shift,
+    start_time: raw.start_time == null ? null : String(raw.start_time),
+    end_time: raw.end_time == null ? null : String(raw.end_time),
   }
 }
 
@@ -41,7 +46,7 @@ async function fetchMonthCells(
 
   const { data, error } = await supabase
     .from('schedule_month_cells')
-    .select(`id, staff_id, work_date, shift, staff ( name )`)
+    .select(`id, staff_id, work_date, shift, start_time, end_time, staff ( name )`)
     .eq('store_id', storeId)
     .gte('work_date', start)
     .lte('work_date', end)
@@ -60,7 +65,7 @@ export async function fetchMonthCellsDateRange(
 ): Promise<MonthCellRow[]> {
   const { data, error } = await supabase
     .from('schedule_month_cells')
-    .select(`id, staff_id, work_date, shift, staff ( name )`)
+    .select(`id, staff_id, work_date, shift, start_time, end_time, staff ( name )`)
     .eq('store_id', storeId)
     .gte('work_date', start)
     .lte('work_date', end)
@@ -97,69 +102,83 @@ export function useMonthCellsDateRange(
   })
 }
 
+export type ApplyMonthScheduleCellInput = {
+  ym: string
+  staffId: string
+  workDate: string
+  shift: ShiftCode | null
+  /** v1.5 일별 예외 시각 — null이면 staff override 또는 매장 기본값 사용. shift=null 시 무시. */
+  start_time?: string | null
+  end_time?: string | null
+}
+
+/** 단일 셀 반영 (DB). 일괄 저장은 `applyMonthScheduleCell`를 `Promise.all`로 병렬 호출. */
+export async function applyMonthScheduleCell(
+  storeId: string,
+  input: ApplyMonthScheduleCellInput,
+): Promise<void> {
+  if (input.shift === null) {
+    const { error } = await supabase
+      .from('schedule_month_cells')
+      .delete()
+      .eq('store_id', storeId)
+      .eq('staff_id', input.staffId)
+      .eq('work_date', input.workDate)
+    if (error) throw error
+    const dayNum = parseInt(input.workDate.split('-')[2]!, 10)
+    await supabase
+      .from('staff_calendar_assignments')
+      .delete()
+      .eq('store_id', storeId)
+      .eq('staff_id', input.staffId)
+      .eq('yyyymm', input.ym)
+      .eq('day', dayNum)
+  } else {
+    const { error } = await supabase.from('schedule_month_cells').upsert(
+      {
+        store_id: storeId,
+        staff_id: input.staffId,
+        work_date: input.workDate,
+        shift: input.shift,
+        start_time: input.start_time ?? null,
+        end_time: input.end_time ?? null,
+      },
+      { onConflict: 'staff_id,work_date' },
+    )
+    if (error) throw error
+
+    const dayNum = parseInt(input.workDate.split('-')[2]!, 10)
+    const yyyymm = input.ym
+
+    await supabase.from('staff_calendar_assignments').delete().match({
+      store_id: storeId,
+      staff_id: input.staffId,
+      yyyymm,
+      day: dayNum,
+    })
+
+    const { error: calErr } = await supabase
+      .from('staff_calendar_assignments')
+      .insert({
+        store_id: storeId,
+        staff_id: input.staffId,
+        yyyymm,
+        day: dayNum,
+        shift: input.shift,
+      })
+    if (calErr) throw calErr
+  }
+}
+
 export function useUpsertMonthCell() {
   const queryClient = useQueryClient()
   const { data: store } = useStore()
   const storeId = store?.id
 
   return useMutation({
-    mutationFn: async (input: {
-      ym: string
-      staffId: string
-      workDate: string
-      shift: ShiftCode | null
-    }) => {
+    mutationFn: async (input: ApplyMonthScheduleCellInput) => {
       if (!storeId) throw new Error('매장 정보가 없습니다.')
-
-      if (input.shift === null) {
-        const { error } = await supabase
-          .from('schedule_month_cells')
-          .delete()
-          .eq('store_id', storeId)
-          .eq('staff_id', input.staffId)
-          .eq('work_date', input.workDate)
-        if (error) throw error
-        const dayNum = parseInt(input.workDate.split('-')[2]!, 10)
-        await supabase
-          .from('staff_calendar_assignments')
-          .delete()
-          .eq('store_id', storeId)
-          .eq('staff_id', input.staffId)
-          .eq('yyyymm', input.ym)
-          .eq('day', dayNum)
-      } else {
-        const { error } = await supabase.from('schedule_month_cells').upsert(
-          {
-            store_id: storeId,
-            staff_id: input.staffId,
-            work_date: input.workDate,
-            shift: input.shift,
-          },
-          { onConflict: 'staff_id,work_date' },
-        )
-        if (error) throw error
-
-        const dayNum = parseInt(input.workDate.split('-')[2]!, 10)
-        const yyyymm = input.ym
-
-        await supabase.from('staff_calendar_assignments').delete().match({
-          store_id: storeId,
-          staff_id: input.staffId,
-          yyyymm,
-          day: dayNum,
-        })
-
-        const { error: calErr } = await supabase
-          .from('staff_calendar_assignments')
-          .insert({
-            store_id: storeId,
-            staff_id: input.staffId,
-            yyyymm,
-            day: dayNum,
-            shift: input.shift,
-          })
-        if (calErr) throw calErr
-      }
+      await applyMonthScheduleCell(storeId, input)
     },
     onSuccess: (_, v) => {
       void queryClient.invalidateQueries({
@@ -229,88 +248,100 @@ export async function fetchStaffWithDefaultShifts(
   return out
 }
 
-/** 프로필 근무요일을 바탕으로 해당 월 전체 schedule_month_cells + 달력 배정을 덮어씁니다. */
-export function useApplyMonthDefaultFromProfiles() {
-  const queryClient = useQueryClient()
-  const { data: store } = useStore()
-  const storeId = store?.id
-
-  return useMutation({
-    mutationFn: async (ym: string) => {
-      if (!storeId) throw new Error('매장 정보가 없습니다.')
-      const [y, m] = ym.split('-').map(Number)
-      const dim = daysInMonth(y, m)
-      const staffRows = await fetchStaffWithDefaultShifts(storeId)
-
-      for (const s of staffRows) {
-        await supabase
-          .from('schedule_month_cells')
-          .delete()
-          .eq('store_id', storeId)
-          .eq('staff_id', s.id)
-          .gte('work_date', `${ym}-01`)
-          .lte('work_date', `${ym}-${String(dim).padStart(2, '0')}`)
-
-        await supabase
-          .from('staff_calendar_assignments')
-          .delete()
-          .eq('store_id', storeId)
-          .eq('staff_id', s.id)
-          .eq('yyyymm', ym)
-
-        for (let day = 1; day <= dim; day++) {
-          const wd = new Date(y, m - 1, day).getDay()
-          const shift = pickShiftForWeekday(s.shifts, wd)
-          if (!shift) continue
-          const workDate = `${ym}-${String(day).padStart(2, '0')}`
-          const { error: cErr } = await supabase.from('schedule_month_cells').insert({
-            store_id: storeId,
-            staff_id: s.id,
-            work_date: workDate,
-            shift,
-          })
-          if (cErr) throw cErr
-          const { error: aErr } = await supabase
-            .from('staff_calendar_assignments')
-            .insert({
-              store_id: storeId,
-              staff_id: s.id,
-              yyyymm: ym,
-              day,
-              shift,
-            })
-          if (aErr) throw aErr
-        }
-      }
-    },
-    onSuccess: (_, ym) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['monthSchedule', storeId, ym],
-      })
-      void queryClient.invalidateQueries({ queryKey: ['staffCalendar'] })
-    },
-  })
+export type MonthDraftEntry = {
+  staffId: string
+  workDate: string
+  shift: ShiftCode | null
+  /** v1.5 일별 예외 시각 — 둘 다 채우거나 둘 다 null. shift=null이면 무시. */
+  start_time?: string | null
+  end_time?: string | null
 }
 
-export type MonthDraftEntry = { staffId: string; workDate: string; shift: ShiftCode | null }
+export type ProfileDraftCell = {
+  staff_id: string
+  work_date: string
+  shift: ShiftCode
+  start_time: string | null
+  end_time: string | null
+}
+
+/**
+ * 직원 프로필 근무요일 + staff_shift_overrides 시각을 기반으로
+ * 해당 월 초안 cells를 **생성만** 한다 (DB 미반영).
+ *
+ * 「기본 근무 세팅」 클릭 시 호출 → setMonthDraft에 전달. 사용자가 「저장」 누르면 DB 반영.
+ */
+export async function buildMonthDraftFromProfiles(
+  storeId: string,
+  ym: string,
+): Promise<ProfileDraftCell[]> {
+  const [y, m] = ym.split('-').map(Number)
+  if (!y || !m) throw new Error(`잘못된 ym: ${ym}`)
+  const dim = daysInMonth(y, m)
+
+  const staffRows = await fetchStaffWithDefaultShifts(storeId)
+
+  const { data: overrideRows, error } = await supabase
+    .from('staff_shift_overrides')
+    .select('staff_id, shift, start_time, end_time')
+    .eq('store_id', storeId)
+  if (error) throw error
+  const overrideByKey = new Map<string, { start: string; end: string }>()
+  for (const r of (overrideRows ?? []) as Record<string, unknown>[]) {
+    const sh = r.shift
+    if (sh !== 'open' && sh !== 'middle' && sh !== 'close') continue
+    overrideByKey.set(`${String(r.staff_id)}|${sh}`, {
+      start: String(r.start_time),
+      end: String(r.end_time),
+    })
+  }
+
+  const cells: ProfileDraftCell[] = []
+  for (const s of staffRows) {
+    for (let day = 1; day <= dim; day++) {
+      const wd = new Date(y, m - 1, day).getDay()
+      const shift = pickShiftForWeekday(s.shifts, wd)
+      if (!shift) continue
+      const workDate = `${ym}-${String(day).padStart(2, '0')}`
+      const ov = overrideByKey.get(`${s.id}|${shift}`)
+      cells.push({
+        staff_id: s.id,
+        work_date: workDate,
+        shift,
+        start_time: ov?.start ?? null,
+        end_time: ov?.end ?? null,
+      })
+    }
+  }
+  return cells
+}
 
 /** 월간 달력 초안 일괄 저장 (`schedule_month_cells` + `staff_calendar_assignments` 동기). */
 export function usePersistMonthScheduleDraft() {
   const queryClient = useQueryClient()
   const { data: store } = useStore()
   const storeId = store?.id
-  const upsert = useUpsertMonthCell()
 
   return useMutation({
     mutationFn: async (input: { ym: string; entries: MonthDraftEntry[] }) => {
+      if (!storeId) throw new Error('매장 정보가 없습니다.')
+      const dedup = new Map<string, MonthDraftEntry>()
       for (const e of input.entries) {
-        await upsert.mutateAsync({
-          ym: input.ym,
-          staffId: e.staffId,
-          workDate: e.workDate,
-          shift: e.shift,
-        })
+        dedup.set(`${e.staffId}|${e.workDate}`, e)
       }
+      const unique = [...dedup.values()]
+      await Promise.all(
+        unique.map((e) =>
+          applyMonthScheduleCell(storeId, {
+            ym: input.ym,
+            staffId: e.staffId,
+            workDate: e.workDate,
+            shift: e.shift,
+            start_time: e.start_time ?? null,
+            end_time: e.end_time ?? null,
+          }),
+        ),
+      )
     },
     onSuccess: (_, v) => {
       void queryClient.invalidateQueries({

@@ -109,10 +109,21 @@ src/
 
 ## 미결 사항 (결정 전 임의 구현 금지)
 
-- [ ] `schedule_month_cells` vs `staff_calendar_assignments` 단일 소스 통합 여부
-- [ ] 출퇴근 수기수정 OTP: 카카오워크 Webhook vs Twilio SMS 선택
-- [ ] 주휴·야간 수당 수식 근로기준법 시나리오 정교화 (주 단위 15h 집계 등)
-- [ ] 급여 명세서 PDF/이미지 생성 방식
+- [ ] `schedule_month_cells` vs `staff_calendar_assignments` 단일 소스 통합 여부 (A안 적용 후 month_cells 단일소스 운영 중. `staff_calendar_assignments`·`schedule_week_slots` DROP 시점 미정)
+- [ ] 주휴수당 수식 정교화 — 주 단위 15h 집계 (ISO 주차 기반, 잠정 평균값 사용 중)
+- [ ] 야간수당 수식 — 22:00~06:00 구간 집계 알고리즘. 명세서엔 「—」 폴드백
+- [ ] **푸시 알림 / SMS — 추후 별도 Phase**:
+  - 카카오워크 Webhook vs Twilio SMS 선택 (출퇴근 OTP 포함)
+  - 트리거: 미출근 직원·업무 미완료·사장 OTP 인증 등
+- [x] **급여 명세서 출력 방식 — Phase A 채택·구현 완료** (브라우저 인쇄 기반 통합표 1장, 의존성 0)
+  - Phase B (이미지 카톡 공유, `html2canvas` 도입) — 별도 로드맵
+  - Phase C (서버 PDF, 로고, 자동 전송) — 별도 로드맵
+- [x] **사장님 / 매장 화면 분리 — v1.5 설계 확정 (2026-05-14)**: `설계/설계-2026-05-14-v1.5-사장직원분리.md`
+  - 인증: 사장님 Auth 계정 + 매장 Auth 계정 (각 1개), 로그인 페이지에서 분기
+  - 권한: owner / store 2단계 (매니저 분리 없음)
+  - 다중 매장 지원 (사장 1명 ↔ 매장 N개)
+  - Phase 0 SQL: `supabase/sql/feature7_tasks_and_store_accounts.sql`
+  - 업무(Tasks) 기능으로 체크리스트 대체 (`store_tasks`, `store_task_reports`)
 
 ---
 

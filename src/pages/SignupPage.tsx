@@ -78,9 +78,10 @@ export function SignupPage() {
       />
       <Card className="relative z-[1] w-full max-w-md gap-5">
         <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-xl">회원가입</CardTitle>
+          <CardTitle className="font-heading text-xl">사장님 회원가입</CardTitle>
           <CardDescription>
-            매장 운영 앱을 처음 이용하시는 경우 계정을 만듭니다.
+            매장 운영 앱을 처음 이용하시는 사장님이 사용하는 가입 화면입니다. 매장 단말 공유
+            계정은 가입 후 「내 매장 정보」에서 발급합니다.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

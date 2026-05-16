@@ -3,13 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useStore } from '@/hooks/useStore'
 import { supabase } from '@/lib/supabase'
 
-import { fetchWeekSlots } from '@/hooks/useWeekSchedule'
+import { parseYmdLocal } from '@/lib/dateUtils'
 import {
-  addDaysLocal,
-  checkoutFromLastSlotLocal,
-  dateAtSlotStartLocal,
-  parseYmdLocal,
-} from '@/lib/dateUtils'
+  getShiftTimeForDay,
+  type StoreShiftColumns,
+} from '@/lib/shiftResolver'
+import { ensureStore } from '@/lib/ensureStore'
+import { useAuth } from '@/contexts/auth-context'
 
 export type AttendanceRow = {
   id: string
@@ -283,63 +283,91 @@ export function describeBaselineSyncSummary(s: GenerateBaselineSummary): string 
   return `출퇴근 기준 자동 동기화: ${parts.join(' · ')}.`
 }
 
-/** 주간 근무표: 같은 날·같은 직원의 첫 슬롯~마지막 슬롯 시각으로 기준 출퇴근 행 생성·맞춤(v1.5 정렬). */
-export async function generateAttendanceBaselineForWeek(
-  storeId: string,
-  weekStart: string,
-): Promise<GenerateBaselineSummary> {
-  const slots = await fetchWeekSlots(storeId, weekStart)
-  const weekBase = parseYmdLocal(weekStart)
-  weekBase.setHours(0, 0, 0, 0)
+function dateAtHmLocal(baseDay: Date, hm: string): Date {
+  const [h, m] = hm.split(':').map((x) => parseInt(x, 10))
+  const d = new Date(baseDay)
+  d.setHours(Number.isNaN(h) ? 9 : h, Number.isNaN(m) ? 0 : m, 0, 0)
+  return d
+}
 
-  const byStaffDay = new Map<string, number[]>()
-  for (const slot of slots) {
-    for (const a of slot.assignees) {
-      const key = `${a.staff_id}|${slot.day_index}`
-      if (!byStaffDay.has(key)) byStaffDay.set(key, [])
-      byStaffDay.get(key)!.push(slot.slot_index)
-    }
-  }
+/**
+ * v1.5 A안: 월간 근무표(`schedule_month_cells`) 기반 baseline 생성·맞춤.
+ * 각 cell에 대해 `getShiftTimeForDay` (cell.start_time/end_time > staff override > store)로 시각 결정.
+ *
+ * cells에 없는 (staff, date)의 기존 자동 baseline은 휴무 의미이므로 DELETE.
+ * 단 `manually_corrected=true`거나 실제 punch(`is_baseline=false`)는 유지.
+ */
+export async function generateAttendanceBaselineForMonth(
+  storeId: string,
+  ym: string,
+  store: StoreShiftColumns,
+): Promise<GenerateBaselineSummary> {
+  // 1. 해당 월 cells 조회 (start_time/end_time 포함)
+  const [y, m] = ym.split('-').map(Number)
+  if (!y || !m) throw new Error(`잘못된 ym: ${ym}`)
+  const last = new Date(y, m, 0).getDate()
+  const monthStartIso = new Date(y, m - 1, 1)
+  monthStartIso.setHours(0, 0, 0, 0)
+  const monthEndIso = new Date(y, m - 1, last)
+  monthEndIso.setHours(23, 59, 59, 999)
+
+  const { data: cellRows, error: cErr } = await supabase
+    .from('schedule_month_cells')
+    .select('staff_id, work_date, shift, start_time, end_time')
+    .eq('store_id', storeId)
+    .gte('work_date', `${ym}-01`)
+    .lte('work_date', `${ym}-${String(last).padStart(2, '0')}`)
+  if (cErr) throw cErr
+
+  const cells = (cellRows ?? [])
+    .map((r) => r as Record<string, unknown>)
+    .filter((r) => {
+      const sh = r.shift
+      return sh === 'open' || sh === 'middle' || sh === 'close'
+    })
+    .map((r) => ({
+      staff_id: String(r.staff_id),
+      work_date: String(r.work_date),
+      shift: r.shift as 'open' | 'middle' | 'close',
+      start_time: r.start_time == null ? null : String(r.start_time),
+      end_time: r.end_time == null ? null : String(r.end_time),
+    }))
 
   const summary: GenerateBaselineSummary = {
-    plannedStaffDays: byStaffDay.size,
+    plannedStaffDays: cells.length,
     inserted: 0,
     updated: 0,
     skippedConflict: 0,
     unchanged: 0,
   }
 
-  for (const [key, indices] of byStaffDay) {
-    const pipe = key.indexOf('|')
-    if (pipe < 0) continue
-    const staff_id = key.slice(0, pipe)
-    const day_index = Number(key.slice(pipe + 1))
-    if (Number.isNaN(day_index)) continue
-
-    const uniq = [...new Set(indices)].sort((x, y) => x - y)
-    const minIdx = uniq[0]!
-    const maxIdx = uniq[uniq.length - 1]!
-
-    const calendarDay = addDaysLocal(weekBase, day_index)
-    const checkIn = dateAtSlotStartLocal(calendarDay, minIdx)
-    const checkOut = checkoutFromLastSlotLocal(calendarDay, maxIdx)
+  // 2. 각 cell → baseline upsert
+  const cellKeys = new Set<string>()
+  for (const cell of cells) {
+    cellKeys.add(`${cell.staff_id}|${cell.work_date}`)
+    const t = getShiftTimeForDay(
+      cell.shift,
+      { start_time: cell.start_time, end_time: cell.end_time },
+      store,
+    )
+    const baseDay = parseYmdLocal(cell.work_date)
+    baseDay.setHours(0, 0, 0, 0)
+    const checkIn = dateAtHmLocal(baseDay, t.startTime)
+    const checkOut = dateAtHmLocal(baseDay, t.endTime)
     const targetIn = checkIn.toISOString()
     const targetOut = checkOut.toISOString()
 
-    const dayStart = new Date(calendarDay)
-    dayStart.setHours(0, 0, 0, 0)
-    const dayEnd = new Date(dayStart)
+    const dayStart = new Date(baseDay)
+    const dayEnd = new Date(baseDay)
     dayEnd.setDate(dayEnd.getDate() + 1)
-    const dayStartIso = dayStart.toISOString()
-    const dayEndIso = dayEnd.toISOString()
 
     const { data: rows, error: qErr } = await supabase
       .from('attendance')
       .select('id, is_baseline, manually_corrected, check_in, check_out')
       .eq('store_id', storeId)
-      .eq('staff_id', staff_id)
-      .gte('check_in', dayStartIso)
-      .lt('check_in', dayEndIso)
+      .eq('staff_id', cell.staff_id)
+      .gte('check_in', dayStart.toISOString())
+      .lt('check_in', dayEnd.toISOString())
     if (qErr) throw qErr
 
     const list = mapAttendanceDayRows(rows as Record<string, unknown>[] | null)
@@ -347,7 +375,7 @@ export async function generateAttendanceBaselineForWeek(
     if (list.length === 0) {
       const { error } = await supabase.from('attendance').insert({
         store_id: storeId,
-        staff_id,
+        staff_id: cell.staff_id,
         check_in: targetIn,
         check_out: targetOut,
         is_baseline: true,
@@ -357,9 +385,7 @@ export async function generateAttendanceBaselineForWeek(
       continue
     }
 
-    const hasConflict = list.some(
-      (r) => !r.is_baseline || r.manually_corrected,
-    )
+    const hasConflict = list.some((r) => !r.is_baseline || r.manually_corrected)
     if (hasConflict) {
       summary.skippedConflict++
       continue
@@ -410,6 +436,36 @@ export async function generateAttendanceBaselineForWeek(
     summary.updated++
   }
 
+  // 3. cells에 없는 자동 baseline (휴무로 변경된 날) → DELETE
+  //    조건: is_baseline=true AND manually_corrected=false
+  const { data: monthBaselineRows, error: mErr } = await supabase
+    .from('attendance')
+    .select('id, staff_id, check_in')
+    .eq('store_id', storeId)
+    .eq('is_baseline', true)
+    .eq('manually_corrected', false)
+    .gte('check_in', monthStartIso.toISOString())
+    .lt('check_in', monthEndIso.toISOString())
+  if (mErr) throw mErr
+
+  const orphanIds: string[] = []
+  for (const r of (monthBaselineRows ?? []) as Record<string, unknown>[]) {
+    const checkIn = typeof r.check_in === 'string' ? r.check_in : null
+    if (!checkIn) continue
+    const d = new Date(checkIn)
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const key = `${String(r.staff_id)}|${ymd}`
+    if (!cellKeys.has(key)) orphanIds.push(String(r.id))
+  }
+  if (orphanIds.length > 0) {
+    const { error: dErr } = await supabase
+      .from('attendance')
+      .delete()
+      .eq('store_id', storeId)
+      .in('id', orphanIds)
+    if (dErr) throw dErr
+  }
+
   return summary
 }
 
@@ -437,15 +493,20 @@ export function useDeleteAttendance() {
   })
 }
 
-export function useGenerateAttendanceBaseline() {
+/** v1.5 A안 — 월간 근무표 저장 후 baseline 일괄 생성. */
+export function useGenerateAttendanceBaselineForMonth() {
   const queryClient = useQueryClient()
   const { data: store } = useStore()
   const storeId = store?.id
+  const { session } = useAuth()
+  const userId = session?.user?.id
 
   return useMutation({
-    mutationFn: async (weekStart: string) => {
+    mutationFn: async (ym: string) => {
       if (!storeId) throw new Error('매장 정보가 없습니다.')
-      return generateAttendanceBaselineForWeek(storeId, weekStart)
+      if (!userId) throw new Error('로그인 정보가 없습니다.')
+      const storeRow = await ensureStore(userId)
+      return generateAttendanceBaselineForMonth(storeId, ym, storeRow)
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({

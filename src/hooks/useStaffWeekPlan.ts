@@ -1,104 +1,58 @@
 import { useMemo } from 'react'
-import { useQueries } from '@tanstack/react-query'
 
-import { useStore } from '@/hooks/useStore'
-import { fetchWeekSlots, type WeekSlot } from '@/hooks/useWeekSchedule'
-import {
-  daysInMonth,
-  formatYmdLocal,
-  formatPlannedSlotRange,
-  parseYmdLocal,
-  startOfIsoWeekMonday,
-  SHIFT_LABEL,
-  shiftForSlotIndex,
-  DEFAULT_SHIFT_TIME_SETTINGS,
-  type ShiftTimeSettings,
-  addDaysLocal,
-} from '@/lib/dateUtils'
+import { useMonthCells } from '@/hooks/useMonthSchedule'
 import { useShiftTimeSettings } from '@/hooks/useShiftSettings'
-
-export function weekStartsTouchingMonth(y: number, m: number): string[] {
-  const dim = daysInMonth(y, m)
-  const set = new Set<string>()
-  for (let day = 1; day <= dim; day++) {
-    const d = new Date(y, m - 1, day)
-    set.add(formatYmdLocal(startOfIsoWeekMonday(d)))
-  }
-  return [...set].sort()
-}
+import { DEFAULT_SHIFT_TIME_SETTINGS, SHIFT_LABEL } from '@/lib/dateUtils'
+import { getShiftTimeForDay, type StoreShiftColumns } from '@/lib/shiftResolver'
 
 export type DayPlanSummary = {
   workDate: string
-  slotIndices: number[]
+  /** 시간 범위 표시 — "09:00~14:00" */
   rangeLabel: string
+  /** 시프트 라벨 — "오픈" / "미들" / "마감" */
   bandLabel: string
 }
 
+/**
+ * v1.5.4 A안 완성: 직원의 한 달 근무 일정 — `schedule_month_cells` 기반.
+ * 직원프로필 「근무 달력」에서 사용.
+ */
 export function useStaffWeekCalendarPlans(
   staffId: string | undefined,
   yyyymm: string,
 ) {
-  const { data: store } = useStore()
-  const storeId = store?.id
   const { data: shiftStore } = useShiftTimeSettings()
-  const settings: ShiftTimeSettings =
-    shiftStore?.settings ?? DEFAULT_SHIFT_TIME_SETTINGS
+  const store: StoreShiftColumns = shiftStore?.store ?? {
+    shift_open_start: DEFAULT_SHIFT_TIME_SETTINGS.open.start,
+    shift_open_end: DEFAULT_SHIFT_TIME_SETTINGS.open.end,
+    shift_middle_start: DEFAULT_SHIFT_TIME_SETTINGS.middle.start,
+    shift_middle_end: DEFAULT_SHIFT_TIME_SETTINGS.middle.end,
+    shift_close_start: DEFAULT_SHIFT_TIME_SETTINGS.close.start,
+    shift_close_end: DEFAULT_SHIFT_TIME_SETTINGS.close.end,
+  }
 
-  const [y, m] = yyyymm.split('-').map(Number)
-  const weekStarts = useMemo(
-    () =>
-      yyyymm.length === 7 && !Number.isNaN(y) && !Number.isNaN(m)
-        ? weekStartsTouchingMonth(y, m)
-        : [],
-    [y, m, yyyymm],
-  )
-
-  const results = useQueries({
-    queries: weekStarts.map((ws) => ({
-      queryKey: ['weekSchedule', storeId, ws] as const,
-      queryFn: () => fetchWeekSlots(storeId!, ws),
-      enabled: Boolean(storeId && staffId),
-    })),
-  })
+  const { data: cells, isLoading } = useMonthCells(yyyymm)
 
   const byDay = useMemo(() => {
     const map = new Map<number, DayPlanSummary>()
-    if (!staffId) return map
-
-    for (let i = 0; i < weekStarts.length; i++) {
-      const ws = weekStarts[i]!
-      const slots: WeekSlot[] | undefined = results[i]?.data
-      if (!slots?.length) continue
-      const base = parseYmdLocal(ws)
-      for (const slot of slots) {
-        if (!slot.assignees.some((a) => a.staff_id === staffId)) continue
-        const ymd = formatYmdLocal(addDaysLocal(base, slot.day_index))
-        if (!ymd.startsWith(yyyymm)) continue
-        const dayNum = parseInt(ymd.slice(8, 10), 10)
-        if (!map.has(dayNum)) {
-          map.set(dayNum, {
-            workDate: ymd,
-            slotIndices: [],
-            rangeLabel: '',
-            bandLabel: '근무',
-          })
-        }
-        const ent = map.get(dayNum)!
-        ent.slotIndices.push(slot.slot_index)
-      }
-    }
-
-    for (const v of map.values()) {
-      v.slotIndices = [...new Set(v.slotIndices)].sort((a, b) => a - b)
-      v.rangeLabel = formatPlannedSlotRange(v.slotIndices)
-      const first = v.slotIndices[0]
-      if (first !== undefined) {
-        const code = shiftForSlotIndex(first, settings)
-        v.bandLabel = code ? SHIFT_LABEL[code] : '근무'
-      }
+    if (!staffId || !cells) return map
+    for (const c of cells) {
+      if (c.staff_id !== staffId) continue
+      const dayNum = parseInt(c.work_date.slice(8, 10), 10)
+      if (Number.isNaN(dayNum)) continue
+      const t = getShiftTimeForDay(
+        c.shift,
+        { start_time: c.start_time, end_time: c.end_time },
+        store,
+      )
+      map.set(dayNum, {
+        workDate: c.work_date,
+        rangeLabel: `${t.startTime}~${t.endTime}`,
+        bandLabel: SHIFT_LABEL[c.shift] ?? '근무',
+      })
     }
     return map
-  }, [staffId, yyyymm, weekStarts, results, settings])
+  }, [staffId, cells, store])
 
-  return { byDay, isLoading: results.some((r) => r.isLoading) }
+  return { byDay, isLoading }
 }

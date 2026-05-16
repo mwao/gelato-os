@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet } from 'react-router-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
@@ -34,7 +35,7 @@ import {
 } from '@/lib/dateUtils'
 import { groupAttendanceByDateStaff, type StaffDayBlock } from '@/lib/attendanceDisplay'
 import {
-  mergePlannedByStaffDate,
+  plannedFromMonthCells,
   type PlannedWorkDetail,
 } from '@/lib/plannedFromWeek'
 import { cn } from '@/lib/utils'
@@ -43,7 +44,7 @@ import {
   useCorrectAttendance,
   useDeleteAttendance,
   describeBaselineSyncSummary,
-  useGenerateAttendanceBaseline,
+  useGenerateAttendanceBaselineForMonth,
   usePunchIn,
   usePunchOut,
 } from '@/hooks/useAttendance'
@@ -56,6 +57,12 @@ import {
 } from '@/hooks/useChecklist'
 import { useEnsureDefaultEmploymentTypes, useEmploymentTypes, sortEmploymentTypesForSelect } from '@/hooks/useEmploymentTypes'
 import { useShiftTimeSettings, useUpdateShiftTimeSettings } from '@/hooks/useShiftSettings'
+import {
+  useDeleteStaffShiftOverride,
+  useStaffShiftOverridesFor,
+  useUpsertStaffShiftOverride,
+} from '@/hooks/useStaffShiftOverrides'
+import { getShiftTimeForDay } from '@/lib/shiftResolver'
 import { useStaffWeekCalendarPlans } from '@/hooks/useStaffWeekPlan'
 import { useStore as useStoreQuery } from '@/hooks/useStore'
 import type { ShiftCode } from '@/hooks/useStaff'
@@ -67,16 +74,14 @@ import {
   useStaffList,
   useUpdateStaff,
 } from '@/hooks/useStaff'
-import type { WeekSlot } from '@/hooks/useWeekSchedule'
-import { fetchStaffWithDefaultShifts } from '@/hooks/useMonthSchedule'
 import {
-  fetchWeekSlots,
-  mergeWeekDraftWithProfileForStaff,
-  stripStaffFromWeekDraft,
-  usePersistWeekDraft,
-  useWeekSlots,
-  weekDraftFromProfileDefaults,
-} from '@/hooks/useWeekSchedule'
+  buildMonthDraftFromProfiles,
+  fetchStaffWithDefaultShifts,
+  useMonthCells,
+  useMonthCellsDateRange,
+  usePersistMonthScheduleDraft,
+  type MonthDraftEntry,
+} from '@/hooks/useMonthSchedule'
 
 const SHIFT_OPTIONS: ShiftCode[] = ['open', 'middle', 'close']
 
@@ -120,8 +125,8 @@ export function StaffPage() {
 export function StaffProfilePage() {
   return <StaffProfileSection />
 }
-export function StaffSchedulePage() {
-  return <StaffScheduleSection />
+export function StaffSchedulePage({ hideWeek = false }: { hideWeek?: boolean } = {}) {
+  return <StaffScheduleSection hideWeek={hideWeek} />
 }
 export function StaffAttendancePage() {
   return <StaffAttendanceSection />
@@ -176,64 +181,72 @@ function StaffProfileSection() {
           새 직원
         </Button>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">직원 목록</CardTitle>
-          <CardDescription>이름을 누르면 아래에서 바로 수정할 수 있습니다.</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-border/60 text-muted-foreground">
-                <th className="pb-2 font-medium">이름</th>
-                <th className="pb-2 font-medium">연락처</th>
-                <th className="pb-2 font-medium">고용형태</th>
-                <th className="pb-2 font-medium text-right">시급</th>
-              </tr>
-            </thead>
-            <tbody>
-              {staffList?.map((s) => (
-                <tr
-                  key={s.id}
-                  className={cn(
-                    'border-b border-border/40 transition-colors',
-                    selectedId === s.id && 'bg-primary/5',
-                  )}
-                >
-                  <td className="py-2">
-                    <button
-                      type="button"
-                      className="font-medium text-primary underline-offset-4 hover:underline"
-                      onClick={() => openDetail(s.id)}
-                    >
-                      {s.name}
-                    </button>
-                  </td>
-                  <td className="py-2 text-muted-foreground">{s.phone ?? '—'}</td>
-                  <td className="py-2">{s.employment_label ?? '—'}</td>
-                  <td className="py-2 text-right tabular-nums">
-                    {s.hourly_rate.toLocaleString()}원
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!staffList?.length ? (
-            <p className="py-6 text-sm text-muted-foreground">등록된 직원이 없습니다.</p>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      {/* 인라인 상세 패널 */}
-      {selectedId ? (
-        <div ref={detailRef} className="animate-in fade-in slide-in-from-top-2 duration-150">
-          <StaffDetailForm
-            staffId={selectedId}
-            onClose={() => setSelectedId(null)}
-            onSaved={() => setSelectedId(null)}
-          />
-        </div>
-      ) : null}
+      <div
+        className={cn(
+          'grid gap-4',
+          selectedId ? 'lg:grid-cols-[320px_minmax(0,1fr)]' : 'grid-cols-1',
+        )}
+      >
+        <Card className="self-start">
+          <CardHeader>
+            <CardTitle className="text-base">직원 목록</CardTitle>
+            <CardDescription>
+              이름을 누르면 {selectedId ? '오른쪽 패널에서' : '오른쪽 상세 패널이 열리며'} 바로 수정할 수 있습니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-muted-foreground">
+                  <th className="pb-2 font-medium">이름</th>
+                  <th className="pb-2 font-medium">고용형태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staffList?.map((s) => (
+                  <tr
+                    key={s.id}
+                    className={cn(
+                      'border-b border-border/40 transition-colors',
+                      selectedId === s.id && 'bg-primary/5',
+                    )}
+                  >
+                    <td className="py-2">
+                      <button
+                        type="button"
+                        className={cn(
+                          'font-medium underline-offset-4 hover:underline',
+                          selectedId === s.id ? 'text-primary' : 'text-foreground',
+                        )}
+                        onClick={() => openDetail(s.id)}
+                      >
+                        {s.name}
+                      </button>
+                    </td>
+                    <td className="py-2 text-muted-foreground">
+                      {s.employment_label ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!staffList?.length ? (
+              <p className="py-6 text-sm text-muted-foreground">등록된 직원이 없습니다.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {selectedId ? (
+          <div ref={detailRef} className="animate-in fade-in slide-in-from-left-2 duration-150">
+            <StaffDetailForm
+              staffId={selectedId}
+              onClose={() => setSelectedId(null)}
+              onSaved={() => setSelectedId(null)}
+            />
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -258,6 +271,8 @@ function StaffDetailForm({
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [hourly, setHourly] = useState('9860')
+  const [baseSalary, setBaseSalary] = useState('')
+  const [offDays, setOffDays] = useState('') // 빈값 = 고용형태 기본값 사용
   const [emplId, setEmplId] = useState<string>('')
   const [hire, setHire] = useState('')
   const [healthExp, setHealthExp] = useState('')
@@ -272,6 +287,12 @@ function StaffDetailForm({
     () => sortEmploymentTypesForSelect(emplTypes ?? []),
     [emplTypes],
   )
+
+  const selectedEmplType = useMemo(
+    () => sortedEmplTypes.find((t) => t.id === emplId) ?? null,
+    [sortedEmplTypes, emplId],
+  )
+  const payMode = selectedEmplType?.pay_mode ?? 'hourly'
 
   useEffect(() => {
     if (!isNew || emplId) return
@@ -290,11 +311,28 @@ function StaffDetailForm({
   } | null>(null)
   const [calModalDay, setCalModalDay] = useState<number | null>(null)
 
+  /** staffId가 'new'로 바뀔 때 폼 리셋 — 기존 직원 정보 잔류 방지 */
+  useEffect(() => {
+    if (!isNew) return
+    setName('')
+    setPhone('')
+    setHourly('9860')
+    setBaseSalary('')
+    setOffDays('')
+    setEmplId('')
+    setHire('')
+    setHealthExp('')
+    setRules([])
+    setFormErr(null)
+  }, [isNew, staffId])
+
   useEffect(() => {
     if (!detail) return
     setName(detail.name)
     setPhone(detail.phone ?? '')
     setHourly(String(detail.hourly_rate))
+    setBaseSalary(detail.base_salary == null ? '' : String(detail.base_salary))
+    setOffDays(detail.monthly_off_days == null ? '' : String(detail.monthly_off_days))
     setEmplId(detail.employment_type_id ?? '')
     setHire(detail.hire_date ?? '')
     setHealthExp(detail.health_cert_expires ?? '')
@@ -359,7 +397,6 @@ function StaffDetailForm({
 
   async function handleSave() {
     setFormErr(null)
-    const hr = parseFloat(hourly.replace(/,/g, ''))
     if (!name.trim()) {
       setFormErr('이름을 입력해 주세요.')
       return
@@ -372,10 +409,34 @@ function StaffDetailForm({
       setFormErr('고용형태를 선택해 주세요.')
       return
     }
-    if (Number.isNaN(hr) || hr < 0) {
-      setFormErr('시급을 확인해 주세요.')
-      return
+
+    let hr = 0
+    let bs: number | null = null
+    let off: number | null = null
+    if (payMode === 'salary') {
+      const parsed = parseFloat(baseSalary.replace(/,/g, ''))
+      if (Number.isNaN(parsed) || parsed < 0) {
+        setFormErr('기본급을 확인해 주세요.')
+        return
+      }
+      bs = parsed
+      const trimmed = offDays.trim()
+      if (trimmed.length > 0) {
+        const parsedOff = parseInt(trimmed, 10)
+        if (Number.isNaN(parsedOff) || parsedOff < 0 || parsedOff > 31) {
+          setFormErr('월 휴무 의무는 0~31 사이 숫자여야 합니다.')
+          return
+        }
+        off = parsedOff
+      }
+    } else {
+      hr = parseFloat(hourly.replace(/,/g, ''))
+      if (Number.isNaN(hr) || hr < 0) {
+        setFormErr('시급을 확인해 주세요.')
+        return
+      }
     }
+
     const seenDowShift = new Set<string>()
     for (const r of rules) {
       const key = `${r.dow}:${r.shift}`
@@ -393,6 +454,8 @@ function StaffDetailForm({
           name: name.trim(),
           phone: phone.trim(),
           hourly_rate: hr,
+          base_salary: bs,
+          monthly_off_days: off,
           employment_type_id: emplId,
           hire_date: hire || null,
           health_cert_expires: healthExp || null,
@@ -411,6 +474,8 @@ function StaffDetailForm({
           name: name.trim(),
           phone: phone.trim(),
           hourly_rate: hr,
+          base_salary: bs,
+          monthly_off_days: off,
           employment_type_id: emplId,
           hire_date: hire || null,
           health_cert_expires: healthExp || null,
@@ -502,20 +567,58 @@ function StaffDetailForm({
               <option value="">선택…</option>
               {sortedEmplTypes.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.label}
+                  {t.label} ({t.pay_mode === 'salary' ? '월급제' : '시급제'})
                 </option>
               ))}
             </select>
+            <p className="text-[11px] text-muted-foreground">
+              고용형태를 바꾸면 아래 폼이 자동으로 «기본급» 또는 «시급» 모드로 전환됩니다.
+            </p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="st-hourly">시급 (원)</Label>
-            <Input
-              id="st-hourly"
-              inputMode="decimal"
-              value={hourly}
-              onChange={(e) => setHourly(e.target.value)}
-            />
-          </div>
+          {payMode === 'salary' ? (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="st-base">기본급 (원)</Label>
+                <Input
+                  id="st-base"
+                  inputMode="decimal"
+                  placeholder="예: 3000000"
+                  value={baseSalary}
+                  onChange={(e) => setBaseSalary(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="st-offdays">월 휴무 의무 (회)</Label>
+                <Input
+                  id="st-offdays"
+                  type="number"
+                  min={0}
+                  max={31}
+                  placeholder={
+                    selectedEmplType?.monthly_off_days != null
+                      ? `기본 ${selectedEmplType.monthly_off_days}`
+                      : '8'
+                  }
+                  value={offDays}
+                  onChange={(e) => setOffDays(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  비우면 «{selectedEmplType?.label ?? '고용형태'}» 기본값(
+                  {selectedEmplType?.monthly_off_days ?? 8}회)을 사용합니다.
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="grid gap-2">
+              <Label htmlFor="st-hourly">시급 (원)</Label>
+              <Input
+                id="st-hourly"
+                inputMode="decimal"
+                value={hourly}
+                onChange={(e) => setHourly(e.target.value)}
+              />
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="st-hire">입사일</Label>
             <Input
@@ -535,6 +638,14 @@ function StaffDetailForm({
             />
           </div>
         </div>
+
+        {payMode === 'hourly' && !isNew ? (
+          <ShiftOverridesEditor staffId={staffId} />
+        ) : payMode === 'hourly' && isNew ? (
+          <p className="text-sm text-muted-foreground">
+            저장 후 «시프트 시간» 개별 설정을 편집할 수 있습니다.
+          </p>
+        ) : null}
 
         <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
           <p className="mb-3 text-sm font-medium">근무요일·시프트 (프로필 기본)</p>
@@ -712,74 +823,207 @@ function StaffDetailForm({
   )
 }
 
-function buildWeekDraftFromSlots(
-  slots: WeekSlot[] | undefined,
-): Record<string, string[]> {
-  const d: Record<string, string[]> = {}
-  if (!slots) return d
-  for (const s of slots) {
-    d[`${s.slot_index}_${s.day_index}`] = s.assignees.map((a) => a.staff_id)
+// ============================================================================
+// 알바 개인별 시프트 시간 오버라이드 에디터
+// ----------------------------------------------------------------------------
+// hourly 모드(파트타임 등) 직원 프로필에서 표시. 매장기본 vs 개별설정 토글.
+// ============================================================================
+
+function ShiftOverridesEditor({ staffId }: { staffId: string }) {
+  const { data: storeShift } = useShiftTimeSettings()
+  const defaults = storeShift?.settings ?? DEFAULT_SHIFT_TIME_SETTINGS
+  const { data: overrides, isLoading } = useStaffShiftOverridesFor(staffId)
+  const upsert = useUpsertStaffShiftOverride()
+  const del = useDeleteStaffShiftOverride()
+
+  const [editing, setEditing] = useState<Record<ShiftCode, { start: string; end: string } | null>>({
+    open: null,
+    middle: null,
+    close: null,
+  })
+
+  function startEdit(shift: ShiftCode) {
+    const existing = overrides?.find((o) => o.shift === shift)
+    setEditing((prev) => ({
+      ...prev,
+      [shift]: existing
+        ? { start: existing.start_time, end: existing.end_time }
+        : { start: defaults[shift].start, end: defaults[shift].end },
+    }))
   }
-  return d
+
+  function cancelEdit(shift: ShiftCode) {
+    setEditing((prev) => ({ ...prev, [shift]: null }))
+  }
+
+  async function saveEdit(shift: ShiftCode) {
+    const v = editing[shift]
+    if (!v) return
+    try {
+      await upsert.mutateAsync({
+        staff_id: staffId,
+        shift,
+        start_time: v.start,
+        end_time: v.end,
+      })
+      setEditing((prev) => ({ ...prev, [shift]: null }))
+    } catch (e) {
+      window.alert(`저장 실패: ${getPostgrestMessage(e)}`)
+    }
+  }
+
+  async function removeOverride(shift: ShiftCode) {
+    try {
+      await del.mutateAsync({ staff_id: staffId, shift })
+      setEditing((prev) => ({ ...prev, [shift]: null }))
+    } catch (e) {
+      window.alert(`삭제 실패: ${getPostgrestMessage(e)}`)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
+      <p className="mb-1 text-sm font-medium">시프트 시간</p>
+      <p className="mb-3 text-xs text-muted-foreground">
+        매장 기본값과 다를 때만 «개별설정»으로 시간을 지정합니다. 출퇴근 예정·급여 계산
+        시 이 시간을 우선 적용합니다.
+      </p>
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground">불러오는 중…</p>
+      ) : (
+        <div className="space-y-2">
+          {(['open', 'middle', 'close'] as const).map((shift) => {
+            const existing = overrides?.find((o) => o.shift === shift) ?? null
+            const draft = editing[shift]
+            const def = defaults[shift]
+            const isEditing = draft !== null
+            return (
+              <div
+                key={shift}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 bg-card p-2"
+              >
+                <span className="min-w-[48px] text-sm font-medium">{SHIFT_LABEL[shift]}</span>
+                {isEditing ? (
+                  <>
+                    <Input
+                      type="time"
+                      className="h-8 w-[110px]"
+                      value={draft.start}
+                      onChange={(e) =>
+                        setEditing((prev) => ({
+                          ...prev,
+                          [shift]: { ...draft, start: e.target.value },
+                        }))
+                      }
+                    />
+                    <span className="text-muted-foreground text-xs">~</span>
+                    <Input
+                      type="time"
+                      className="h-8 w-[110px]"
+                      value={draft.end}
+                      onChange={(e) =>
+                        setEditing((prev) => ({
+                          ...prev,
+                          [shift]: { ...draft, end: e.target.value },
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void saveEdit(shift)}
+                      disabled={upsert.isPending}
+                    >
+                      저장
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelEdit(shift)}
+                    >
+                      취소
+                    </Button>
+                  </>
+                ) : existing ? (
+                  <>
+                    <span className="text-sm tabular-nums">
+                      {existing.start_time} ~ {existing.end_time}
+                    </span>
+                    <span className="text-xs text-primary">(개별설정)</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      onClick={() => startEdit(shift)}
+                    >
+                      수정
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void removeOverride(shift)}
+                      disabled={del.isPending}
+                    >
+                      매장기본 사용
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                      {def.start} ~ {def.end}
+                    </span>
+                    <span className="text-xs text-muted-foreground">(매장기본)</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      onClick={() => startEdit(shift)}
+                    >
+                      개별설정
+                    </Button>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
-function StaffScheduleSection() {
-  const [sub, setSub] = useState<'week' | 'settings'>('week')
-  const [weekStart, setWeekStart] = useState(() =>
-    formatYmdLocal(startOfIsoWeekMonday(new Date())),
-  )
-  const weekEnd = useMemo(
-    () => formatYmdLocal(addDaysLocal(parseYmdLocal(weekStart), 6)),
-    [weekStart],
-  )
-
-  /** 열 순서 = 월(0) … 일(6), `week_start`(월요일) 기준 실제 날짜 */
-  const weekGridColumnMeta = useMemo(() => {
-    const base = parseYmdLocal(weekStart)
-    return [0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
-      const d = addDaysLocal(base, dayIdx)
-      return {
-        dayIdx,
-        dowLabel: WEEK_GRID_DOW_KO[dayIdx]!,
-        md: `${d.getMonth() + 1}/${d.getDate()}`,
-      }
-    })
-  }, [weekStart])
+function StaffScheduleSection({ hideWeek = false }: { hideWeek?: boolean }) {
+  const [sub, setSub] = useState<'month' | 'week' | 'settings'>('month')
 
   const { data: store } = useStoreQuery()
   const storeId = store?.id
-  const [pickStaff, setPickStaff] = useState<string>('')
   const { data: staffList } = useStaffList()
+  const { data: emplTypes } = useEmploymentTypes()
+
+  /** 월간 휴무 현황 패널 + 근무자 박스 그룹화용 join */
+  const staffListWithPay = useMemo(() => {
+    const typeById = new Map(emplTypes?.map((t) => [t.id, t]) ?? [])
+    return (staffList ?? []).map((s) => {
+      const type = s.employment_type_id ? typeById.get(s.employment_type_id) ?? null : null
+      const requiredOffDays = s.monthly_off_days ?? type?.monthly_off_days ?? null
+      return {
+        id: s.id,
+        name: s.name,
+        pay_mode: type?.pay_mode ?? null,
+        requiredOffDays,
+        employmentCode: type?.code ?? null,
+        employmentLabel: type?.label ?? null,
+      }
+    })
+  }, [staffList, emplTypes])
+
   const { data: shiftStoreSettings, refetch: refetchShiftSettings } =
     useShiftTimeSettings()
   const shiftSettings = shiftStoreSettings?.settings
-
-  const persistWeek = usePersistWeekDraft()
-  const { data: slots } = useWeekSlots(weekStart)
-  const genBase = useGenerateAttendanceBaseline()
-
-  const weekDragRef = useRef<{ day: number } | null>(null)
-  const [weekDraft, setWeekDraft] = useState<Record<string, string[]>>({})
-  const [applyProfileBusy, setApplyProfileBusy] = useState(false)
-
-  useEffect(() => {
-    setWeekDraft(buildWeekDraftFromSlots(slots))
-  }, [weekStart, slots])
-
-  useEffect(() => {
-    const endDrag = () => {
-      weekDragRef.current = null
-    }
-    window.addEventListener('mouseup', endDrag)
-    window.addEventListener('touchend', endDrag)
-    return () => {
-      window.removeEventListener('mouseup', endDrag)
-      window.removeEventListener('touchend', endDrag)
-    }
-  }, [])
-
-  const effectiveShiftSettings =
-    shiftSettings ?? DEFAULT_SHIFT_TIME_SETTINGS
 
   const updateShiftSettings = useUpdateShiftTimeSettings()
   const [editShift, setEditShift] = useState<ShiftTimeSettings | null>(null)
@@ -787,88 +1031,74 @@ function StaffScheduleSection() {
     if (shiftSettings) setEditShift(shiftSettings)
   }, [shiftSettings])
 
-  function navWeek(delta: number) {
-    const base = parseYmdLocal(weekStart)
-    base.setDate(base.getDate() + delta * 7)
-    setWeekStart(formatYmdLocal(startOfIsoWeekMonday(base)))
-  }
+  // 월간 근무표
+  const [monthYm, setMonthYm] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [monthDraft, setMonthDraft] = useState<Record<string, MonthDraftCell>>({})
+  const [monthSaving, setMonthSaving] = useState(false)
+  const [applyingDefaults, setApplyingDefaults] = useState(false)
 
-  function slotPast(dayIdx: number, slotIdx: number) {
-    const base = parseYmdLocal(weekStart)
-    const d = addDaysLocal(base, dayIdx)
-    d.setHours(9 + slotIdx, 0, 0, 0)
-    return d.getTime() < Date.now()
-  }
+  const { data: monthCells, isLoading: monthLoading } = useMonthCells(
+    sub === 'month' ? monthYm : undefined,
+  )
+  const persistMonthDraft = usePersistMonthScheduleDraft()
+  const genBaselineMonth = useGenerateAttendanceBaselineForMonth()
 
-  function weekDraftKey(slotIdx: number, dayIdx: number) {
-    return `${slotIdx}_${dayIdx}`
-  }
-
-  function addStaffToWeekCell(dayIdx: number, slotIdx: number) {
-    if (!pickStaff || slotPast(dayIdx, slotIdx)) return
-    const k = weekDraftKey(slotIdx, dayIdx)
-    setWeekDraft((prev) => {
-      const next = { ...prev }
-      const arr = [...(next[k] ?? [])]
-      if (!arr.includes(pickStaff)) arr.push(pickStaff)
-      next[k] = arr
-      return next
-    })
-  }
-
-  function removeStaffFromWeekCell(
-    dayIdx: number,
-    slotIdx: number,
-    staffId: string,
-  ) {
-    if (slotPast(dayIdx, slotIdx)) return
-    const k = weekDraftKey(slotIdx, dayIdx)
-    setWeekDraft((prev) => {
-      const next = { ...prev }
-      const arr = (next[k] ?? []).filter((id) => id !== staffId)
-      if (arr.length === 0) delete next[k]
-      else next[k] = arr
-      return next
-    })
-  }
-
-  function onWeekCellMouseDown(dayIdx: number, slotIdx: number) {
-    if (!pickStaff) {
-      alert('배정하려면 드롭다운에서 근무자 한 명을 선택해 주세요. «전체»일 때는 표만 모두 보입니다.')
-      return
+  const resetMonthDraftFromCells = useCallback(() => {
+    const draft: Record<string, MonthDraftCell> = {}
+    for (const c of monthCells ?? []) {
+      draft[`${c.staff_id}|${c.work_date}`] = {
+        shift: c.shift,
+        start_time: c.start_time,
+        end_time: c.end_time,
+      }
     }
-    if (slotPast(dayIdx, slotIdx)) return
-    weekDragRef.current = { day: dayIdx }
-    addStaffToWeekCell(dayIdx, slotIdx)
-  }
+    setMonthDraft(draft)
+  }, [monthCells])
 
-  function onWeekCellMouseEnter(dayIdx: number, slotIdx: number) {
-    const drag = weekDragRef.current
-    if (!drag || drag.day !== dayIdx) return
-    if (!pickStaff || slotPast(dayIdx, slotIdx)) return
-    addStaffToWeekCell(dayIdx, slotIdx)
-  }
+  useEffect(() => {
+    if (!monthCells) return
+    resetMonthDraftFromCells()
+  }, [monthCells, resetMonthDraftFromCells])
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-1 border-b border-border/50 pb-2">
+    <div className="space-y-6">
+      <div className="inline-flex flex-wrap items-center gap-0.5 rounded-full bg-muted/50 p-1 ring-1 ring-border/25 dark:bg-muted/35">
         <button
           type="button"
           className={cn(
-            'rounded-lg px-3 py-1.5 text-xs',
-            sub === 'week' ? 'bg-primary/15 text-primary' : 'text-muted-foreground',
+            'rounded-full px-3.5 py-2 text-[13px] font-medium transition-all duration-200',
+            sub === 'month'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-black/[0.06] dark:bg-card dark:ring-white/[0.08]'
+              : 'text-muted-foreground hover:text-foreground',
           )}
-          onClick={() => setSub('week')}
+          onClick={() => setSub('month')}
         >
-          주간 (시간대)
+          월간 근무표
         </button>
+        {hideWeek ? null : (
+          <button
+            type="button"
+            className={cn(
+              'rounded-full px-3.5 py-2 text-[13px] font-medium transition-all duration-200',
+              sub === 'week'
+                ? 'bg-background text-foreground shadow-sm ring-1 ring-black/[0.06] dark:bg-card dark:ring-white/[0.08]'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+            onClick={() => setSub('week')}
+          >
+            주간 근무표
+          </button>
+        )}
         <button
           type="button"
           className={cn(
-            'rounded-lg px-3 py-1.5 text-xs',
+            'rounded-full px-3.5 py-2 text-[13px] font-medium transition-all duration-200',
             sub === 'settings'
-              ? 'bg-primary/15 text-primary'
-              : 'text-muted-foreground',
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-black/[0.06] dark:bg-card dark:ring-white/[0.08]'
+              : 'text-muted-foreground hover:text-foreground',
           )}
           onClick={() => setSub('settings')}
         >
@@ -877,21 +1107,23 @@ function StaffScheduleSection() {
       </div>
 
       {sub === 'settings' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">근무관리 — 시프트 시간대</CardTitle>
-            <CardDescription>
+        <Card className="rounded-2xl border-border/45 shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <CardHeader className="border-b border-border/35 bg-gradient-to-b from-muted/25 to-transparent pb-4">
+            <CardTitle className="text-lg font-semibold tracking-tight">
+              근무관리 — 시프트 시간대
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
               오픈·미들·마감의 기본 시작·종료 시각입니다. «근무표 가져오기» 시 직원 프로필
               근무요일·시프트를 이 구간에 맞춰 슬롯에 채웁니다.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-5">
             {editShift ? (
               <>
                 {(['open', 'middle', 'close'] as const).map((code) => (
                   <div
                     key={code}
-                    className="flex flex-wrap items-end gap-3 rounded-lg border border-border/50 p-3"
+                    className="flex flex-wrap items-end gap-3 rounded-xl bg-muted/25 p-4 shadow-sm ring-1 ring-border/25 dark:bg-muted/15"
                   >
                     <span className="min-w-[72px] text-sm font-medium">
                       {SHIFT_LABEL[code]}
@@ -963,357 +1195,1490 @@ function StaffScheduleSection() {
         </Card>
       ) : null}
 
+      {sub === 'month' ? (
+        <MonthScheduleGrid
+          ym={monthYm}
+          onYmChange={(v) => {
+            setMonthYm(v)
+            setMonthDraft({})
+          }}
+          staffList={staffListWithPay}
+          cells={monthCells ?? []}
+          draft={monthDraft}
+          loading={monthLoading}
+          saving={monthSaving}
+          onCellApply={(staffId, workDate, nextValue) => {
+            const key = `${staffId}|${workDate}`
+            setMonthDraft((prev) => ({ ...prev, [key]: nextValue }))
+          }}
+          onApplyDefaults={async () => {
+            if (!storeId) return
+            if (
+              !window.confirm(
+                `${monthYm} 전체 초안을 직원 프로필 근무요일 기준으로 채웁니다.\n` +
+                  `현재 편집 중인 초안의 수정사항은 사라지며, 「저장」을 눌러야 DB에 반영됩니다.\n계속할까요?`,
+              )
+            )
+              return
+            setApplyingDefaults(true)
+            try {
+              const cells = await buildMonthDraftFromProfiles(storeId, monthYm)
+              const draft: Record<string, MonthDraftCell> = {}
+              for (const c of cells) {
+                draft[`${c.staff_id}|${c.work_date}`] = {
+                  shift: c.shift,
+                  start_time: c.start_time,
+                  end_time: c.end_time,
+                }
+              }
+              setMonthDraft(draft)
+              window.alert(
+                `초안에 반영했습니다 (배정 ${cells.length}건).\n«저장»을 눌러야 DB와 출퇴근 기준에 반영됩니다.`,
+              )
+            } catch (e) {
+              window.alert(`실패: ${getPostgrestMessage(e)}`)
+            } finally {
+              setApplyingDefaults(false)
+            }
+          }}
+          onSave={async () => {
+            setMonthSaving(true)
+            try {
+              // v1.5.2: monthCells(DB)와 draft를 비교해 변경점만 entries에 포함
+              const entries: MonthDraftEntry[] = []
+              type CellRow = import('@/hooks/useMonthSchedule').MonthCellRow
+              const dbByKey = new Map<string, CellRow>()
+              for (const c of monthCells ?? []) {
+                dbByKey.set(`${c.staff_id}|${c.work_date}`, c)
+              }
+              const draftKeys = new Set(Object.keys(monthDraft))
+
+              // draft 순회 — 추가/수정/삭제
+              for (const [key, val] of Object.entries(monthDraft)) {
+                const [staffId, workDate] = key.split('|')
+                if (!staffId || !workDate) continue
+                const db = dbByKey.get(key)
+
+                if (val === null) {
+                  // draft에서 명시적으로 휴무 처리 → DB에 있으면 삭제
+                  if (db) entries.push({ staffId, workDate, shift: null })
+                } else if (!db) {
+                  // DB에 없는 새 셀
+                  entries.push({
+                    staffId,
+                    workDate,
+                    shift: val.shift,
+                    start_time: val.start_time,
+                    end_time: val.end_time,
+                  })
+                } else {
+                  // 변경 여부 비교
+                  const sameShift = db.shift === val.shift
+                  const sameStart = (db.start_time ?? null) === val.start_time
+                  const sameEnd = (db.end_time ?? null) === val.end_time
+                  if (!sameShift || !sameStart || !sameEnd) {
+                    entries.push({
+                      staffId,
+                      workDate,
+                      shift: val.shift,
+                      start_time: val.start_time,
+                      end_time: val.end_time,
+                    })
+                  }
+                }
+              }
+
+              // DB엔 있지만 draft에 키 자체가 없는 경우 → 삭제
+              for (const c of monthCells ?? []) {
+                const key = `${c.staff_id}|${c.work_date}`
+                if (!draftKeys.has(key)) {
+                  entries.push({ staffId: c.staff_id, workDate: c.work_date, shift: null })
+                }
+              }
+
+              if (entries.length === 0) {
+                window.alert('변경된 내용이 없습니다.')
+                return false
+              }
+              await persistMonthDraft.mutateAsync({ ym: monthYm, entries })
+              // 월간 저장 후 출퇴근 baseline 자동 동기화 (A안)
+              try {
+                const summary = await genBaselineMonth.mutateAsync(monthYm)
+                window.alert(
+                  `월간 근무표가 저장되었습니다. (변경 ${entries.length}건)\n${describeBaselineSyncSummary(summary)}`,
+                )
+              } catch (e) {
+                window.alert(
+                  `월간 근무표는 저장되었으나 출퇴근 기준 생성에 실패했습니다. ${getPostgrestMessage(e)}`,
+                )
+              }
+              return true
+            } catch (e) {
+              window.alert(`저장 실패: ${getPostgrestMessage(e)}`)
+              return false
+            } finally {
+              setMonthSaving(false)
+            }
+          }}
+          onResetDraft={resetMonthDraftFromCells}
+          defaultsBusy={applyingDefaults}
+          store={shiftStoreSettings?.store ?? null}
+        />
+      ) : null}
+
       {sub === 'week' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">주간 근무표</CardTitle>
-            <CardDescription>
-              드롭다운에서 근무자를 고르면 그 사람만 그리드에 표시되며, 동시에 그 사람을
-              셀에 배치하는 대상이 됩니다. «전체»이면 모든 배정이 보이고, 특정 인원을 고른 뒤
-              셀을 누르거나 같은 요일(열) 안에서 드래그하면 연속 슬롯에 배정합니다. 칸을 바꾼 뒤
-              반드시 «저장»을 눌러야 서버에 반영되며, 그때 출퇴근 «예정»·기준 데이터와
-              연동됩니다. 시간대 행·이름 칩 색은 «근무관리» 오픈·미들·마감 구간과 같습니다.
-              «근무표 가져오기»는 근무자 선택이 «전체»이면 그리드를 비운 뒤 **모든 직원**
-              프로필 근무요일·시프트로 채우고, **특정 직원**을 고른 상태에서는 그 사람의
-              배정만 지운 뒤 그 직원 프로필만 반영합니다(다른 직원 칩은 유지). 모두 그리드
-              <strong> 초안에만</strong> 적용됩니다(저장 전까지 DB에 올라가지 않음).
+        <Card className="rounded-2xl border-border/45 shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <CardHeader className="border-b border-border/35 bg-gradient-to-b from-muted/25 to-transparent pb-4">
+            <CardTitle className="text-lg font-semibold tracking-tight">
+              주간 근무표 (읽기 전용)
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              주간 뷰는 시각화 전용입니다. 근무 배정은 «월간 근무표»에서 관리하며, 이곳에는
+              자동으로 반영됩니다. 편집하려면 상단 «월간 근무표» 탭을 눌러 주세요.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => navWeek(-1)}>
-                ◀ 이전 주
-              </Button>
-              <span className="text-sm font-medium tabular-nums">
-                {weekStart} ~ {weekEnd}
-              </span>
-              <Button type="button" variant="outline" size="sm" onClick={() => navWeek(1)}>
-                다음 주 ▶
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="text-muted-foreground shrink-0 text-sm">
-                  근무자 선택
-                </span>
-                <span className="text-muted-foreground shrink-0 text-sm">:</span>
-                <select
-                  className="border-input h-9 max-w-[min(100%,280px)] min-w-[140px] rounded-lg border bg-background px-2 text-sm"
-                  value={pickStaff}
-                  onChange={(e) => setPickStaff(e.target.value)}
-                >
-                  <option value="">전체</option>
-                  {staffList?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={
-                    applyProfileBusy ||
-                    genBase.isPending ||
-                    persistWeek.isPending ||
-                    !shiftSettings ||
-                    !storeId
-                  }
-                  onClick={() => {
-                    if (!shiftSettings || !storeId) return
-                    const isAll = pickStaff === ''
-                    const pickedName =
-                      staffList?.find((s) => s.id === pickStaff)?.name ||
-                      '선택한 직원'
-                    if (
-                      !window.confirm(
-                        isAll
-                          ? '전체 근무표 초안을 비운 뒤, 모든 직원 프로필의 근무 요일·시프트로 채웁니다. 계속할까요?'
-                          : `「${pickedName}」직원의 배정만 초안에서 지운 뒤, 해당 직원 프로필 근무로 다시 채웁니다. 다른 직원의 배정은 유지됩니다. 계속할까요?`,
-                      )
-                    )
-                      return
-                    setApplyProfileBusy(true)
-                    void (async () => {
-                      try {
-                        const staffRows =
-                          await fetchStaffWithDefaultShifts(storeId)
-                        if (isAll) {
-                          const draft = weekDraftFromProfileDefaults(
-                            staffRows,
-                            shiftSettings,
-                          )
-                          setWeekDraft(draft)
-                          let placed = 0
-                          for (const ids of Object.values(draft))
-                            placed += ids.length
-                          const withRules = staffRows.filter(
-                            (s) => s.shifts.length > 0,
-                          ).length
-                          window.alert(
-                            `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n전체 초기화 후 슬롯 배정 ${placed}건 · 근무 규칙이 있는 직원 ${withRules}명`,
-                          )
-                        } else {
-                          const one = staffRows.filter((s) => s.id === pickStaff)
-                          const partial = weekDraftFromProfileDefaults(
-                            one,
-                            shiftSettings,
-                          )
-                          let placedPartial = 0
-                          for (const ids of Object.values(partial))
-                            placedPartial += ids.length
-
-                          if (one.length === 0) {
-                            setWeekDraft((prev) =>
-                              stripStaffFromWeekDraft(prev, pickStaff),
-                            )
-                            window.alert(
-                              `「${pickedName}」님의 프로필에 근무 요일·시프트가 없습니다. 해당 직원의 배정만 그리드에서 제거했습니다(저장 전까지 서버에 반영되지 않습니다).`,
-                            )
-                          } else {
-                            setWeekDraft((prev) =>
-                              mergeWeekDraftWithProfileForStaff(
-                                prev,
-                                one[0]!,
-                                shiftSettings,
-                              ),
-                            )
-                            window.alert(
-                              `그리드 초안에 반영했습니다(저장 전까지 서버에 반영되지 않습니다).\n「${pickedName}」프로필 기준 슬롯 배정 ${placedPartial}건 · 다른 직원 배정은 유지되었습니다.`,
-                            )
-                          }
-                        }
-                      } catch (e) {
-                        window.alert(
-                          `처리에 실패했습니다. ${getPostgrestMessage(e)}`,
-                        )
-                      } finally {
-                        setApplyProfileBusy(false)
-                      }
-                    })()
-                  }}
-                >
-                  근무표 가져오기
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={persistWeek.isPending || genBase.isPending}
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        '근무표를 저장하시겠습니까?\n\n저장한 내용은 출퇴근 기록의 예정 시간·기준 데이터와 연동됩니다.',
-                      )
-                    )
-                      return
-                    void persistWeek
-                      .mutateAsync({ weekStart, draft: weekDraft })
-                      .then(async () => {
-                        try {
-                          const summary = await genBase.mutateAsync(weekStart)
-                          window.alert(
-                            `주간 근무표가 저장되었습니다.\n\n${describeBaselineSyncSummary(summary)}`,
-                          )
-                        } catch (e) {
-                          window.alert(
-                            `근무표는 저장되었으나 출퇴근 기준 생성에 실패했습니다. ${getPostgrestMessage(e)}`,
-                          )
-                        }
-                      })
-                      .catch((e) =>
-                        window.alert(
-                          `저장에 실패했습니다. ${getPostgrestMessage(e)}`,
-                        ),
-                      )
-                  }}
-                >
-                  저장
-                </Button>
-              </div>
-            </div>
-            {persistWeek.isPending || genBase.isPending
-              ? createPortal(
-                  <div
-                    className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
-                    role="status"
-                    aria-live="polite"
-                    aria-busy="true"
-                  >
-                    <div className="border-border/60 bg-card text-card-foreground flex w-full max-w-[min(100%,340px)] flex-col items-center gap-5 rounded-2xl border px-8 py-9 shadow-lg">
-                      <div className="relative size-[76px] shrink-0" aria-hidden>
-                        <svg
-                          className="text-muted/35 size-full -rotate-90"
-                          viewBox="0 0 48 48"
-                          fill="none"
-                        >
-                          <circle
-                            cx="24"
-                            cy="24"
-                            r="20"
-                            stroke="currentColor"
-                            strokeWidth="5"
-                          />
-                        </svg>
-                        <svg
-                          className="text-primary absolute inset-0 size-full -rotate-90 motion-safe:animate-spin motion-reduce:animate-none"
-                          viewBox="0 0 48 48"
-                          fill="none"
-                        >
-                          <circle
-                            cx="24"
-                            cy="24"
-                            r="20"
-                            stroke="currentColor"
-                            strokeWidth="5"
-                            strokeLinecap="round"
-                            strokeDasharray="32 100"
-                          />
-                        </svg>
-                      </div>
-                      <p className="text-center text-sm leading-relaxed text-muted-foreground">
-                        {persistWeek.isPending
-                          ? '근무표를 저장하는 중…'
-                          : '출퇴근 기준 데이터를 반영하는 중…'}
-                      </p>
-                    </div>
-                  </div>,
-                  document.body,
-                )
-              : null}
-            <div className="overflow-x-auto">
-              <table
-                className="w-full min-w-[720px] table-fixed border-collapse text-xs"
-                onMouseLeave={() => {
-                  weekDragRef.current = null
-                }}
+          <CardContent className="pt-5">
+            <div className="rounded-2xl bg-amber-500/[0.07] p-5 text-sm text-amber-900 shadow-sm ring-1 ring-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+              <p className="font-medium">📌 데이터 단일화 안내 (v1.5 A안)</p>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-amber-800/90 dark:text-amber-200/90">
+                <li>모든 근무 배정은 «월간 근무표»에서 저장됩니다.</li>
+                <li>저장 시 출퇴근 기준 데이터(baseline)도 자동 생성됩니다.</li>
+                <li>주간 뷰 시각화는 다음 세션에서 정교화될 예정입니다.</li>
+              </ul>
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3"
+                onClick={() => setSub('month')}
               >
-                <colgroup>
-                  <col style={{ width: '72px' }} />
-                  {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                    <col key={i} />
-                  ))}
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th className="border border-border/50 bg-muted/40 px-1 py-1 text-left">
-                      시간
-                    </th>
-                    {weekGridColumnMeta.map(({ dayIdx, dowLabel, md }) => (
-                      <th
-                        key={dayIdx}
-                        className="border border-border/50 bg-muted/40 px-1 py-1.5"
-                      >
-                        <div className="flex flex-col items-center gap-0.5 leading-tight">
-                          <span className="text-[12px] font-semibold">{dowLabel}</span>
-                          <span className="text-[10px] font-normal text-muted-foreground">
-                            {md}
-                          </span>
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {WEEK_SLOT_LABELS.map((label, slotIdx) => {
-                    const slotBand = shiftForSlotIndex(
-                      slotIdx,
-                      effectiveShiftSettings,
-                    )
-                    return (
-                    <tr key={label}>
-                      <td
-                        className={cn(
-                          'border border-border/50 px-1.5 py-1.5 text-[11px] font-medium',
-                          weekSlotBandBgClass(slotBand),
-                        )}
-                      >
-                        {label}
-                      </td>
-                      {[0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
-                        const past = slotPast(dayIdx, slotIdx)
-                        const k = weekDraftKey(slotIdx, dayIdx)
-                        const rawIds = weekDraft[k] ?? []
-                        const ids = pickStaff
-                          ? rawIds.filter((id) => id === pickStaff)
-                          : rawIds
-                        return (
-                          <td
-                            key={dayIdx}
-                            className={cn(
-                              'border border-border/50 p-1 align-top select-none',
-                              !past && 'bg-card',
-                              past && 'bg-muted/50 opacity-60',
-                            )}
-                            onMouseDown={() =>
-                              !past ? onWeekCellMouseDown(dayIdx, slotIdx) : undefined
-                            }
-                            onMouseEnter={() => onWeekCellMouseEnter(dayIdx, slotIdx)}
-                          >
-                            <div
-                              className={cn(
-                                'flex min-h-[38px] w-full min-w-0 flex-col gap-0.5',
-                                ids.length === 1 && 'justify-center',
-                              )}
-                            >
-                              {ids.map((sid) => {
-                                const name =
-                                  staffList?.find((x) => x.id === sid)?.name ?? sid
-                                return (
-                                  <div
-                                    key={sid}
-                                    className={weekStaffChipShellClass(slotBand)}
-                                  >
-                                    <span className="min-w-0 flex-1 truncate font-medium">
-                                      {name}
-                                    </span>
-                                    {!past ? (
-                                      <button
-                                        type="button"
-                                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/15 active:bg-destructive/25"
-                                        title="이 슬롯에서 제거"
-                                        onMouseDown={(e) => {
-                                          e.stopPropagation()
-                                        }}
-                                        onPointerDown={(e) => {
-                                          e.stopPropagation()
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          removeStaffFromWeekCell(
-                                            dayIdx,
-                                            slotIdx,
-                                            sid,
-                                          )
-                                        }}
-                                      >
-                                        <span
-                                          className="text-base font-light leading-none"
-                                          aria-hidden
-                                        >
-                                          ×
-                                        </span>
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </td>
-                        )
-                      })}
-                    </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                월간 근무표로 이동
+              </Button>
             </div>
           </CardContent>
         </Card>
       ) : null}
     </div>
+  )
+}
+
+// ============================================================================
+// 월간 근무표 달력
+// ============================================================================
+
+/** 월간 칩 — 틴트 + 아주 약한 입체감 */
+function monthShiftClass(shift: ShiftCode | null): string {
+  if (shift === 'open')
+    return 'border border-primary/45 bg-primary/[0.12] text-primary shadow-sm dark:border-primary/40 dark:bg-primary/[0.14] dark:text-primary'
+  if (shift === 'middle')
+    return 'border border-blue-500/40 bg-blue-500/[0.1] text-blue-950 shadow-sm dark:border-blue-400/40 dark:bg-blue-500/[0.12] dark:text-blue-50'
+  if (shift === 'close')
+    return 'border border-amber-500/40 bg-amber-500/[0.11] text-amber-950 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/[0.14] dark:text-amber-50'
+  return ''
+}
+
+const DOW_CAL = ['일', '월', '화', '수', '목', '금', '토']
+
+/**
+ * 월간 draft 셀 값.
+ * null = 미배정(휴무). 객체 = 시프트 + 선택적 일별 시각 예외.
+ */
+type MonthDraftCell = {
+  shift: ShiftCode
+  start_time: string | null
+  end_time: string | null
+} | null
+
+type MonthScheduleStaff = {
+  id: string
+  name: string
+  pay_mode?: 'salary' | 'hourly' | null
+  requiredOffDays?: number | null
+  /** 고용형태 그룹 코드 — 'manager' | 'staff' | 'parttime' | 'other' | (custom) */
+  employmentCode?: string | null
+  /** 표시용 라벨 — '매니저' / '직원' 등 */
+  employmentLabel?: string | null
+}
+
+/** 시급제 칩 — 월급제와 동일(테두리+옅은 틴트)으로 시각 언어 통일 */
+function monthShiftTextOnlyClass(shift: ShiftCode | null): string {
+  return monthShiftClass(shift)
+}
+
+/** HH:mm → 분 (월간 일별 타임라인용) */
+function shiftHmToMinutes(hm: string): number | null {
+  const [h, m] = hm.split(':').map((x) => parseInt(x, 10))
+  if (Number.isNaN(h)) return null
+  return h * 60 + (Number.isNaN(m) ? 0 : m)
+}
+
+/** 고용형태 그룹 우선순위: 매니저 → 직원 → 아르바이트 → 기타 → 커스텀 */
+const EMPLOYMENT_GROUP_ORDER: { code: string; label: string }[] = [
+  { code: 'manager', label: '매니저' },
+  { code: 'staff', label: '직원' },
+  { code: 'parttime', label: '아르바이트' },
+  { code: 'other', label: '기타' },
+]
+
+function StaffPickerByEmployment({
+  staffList,
+  pickedStaffId,
+  onPick,
+}: {
+  staffList: MonthScheduleStaff[]
+  pickedStaffId: string | null
+  onPick: (id: string | null) => void
+}) {
+  const pickedStaff = staffList.find((s) => s.id === pickedStaffId) ?? null
+
+  // 고용형태 코드별로 묶기 — <optgroup> 순서에 사용
+  const grouped = new Map<string, MonthScheduleStaff[]>()
+  for (const s of staffList) {
+    const code = s.employmentCode ?? 'other'
+    if (!grouped.has(code)) grouped.set(code, [])
+    grouped.get(code)!.push(s)
+  }
+  const orderedCodes: string[] = []
+  for (const o of EMPLOYMENT_GROUP_ORDER) {
+    if (grouped.has(o.code)) orderedCodes.push(o.code)
+  }
+  for (const code of [...grouped.keys()].sort()) {
+    if (!orderedCodes.includes(code)) orderedCodes.push(code)
+  }
+
+  function labelFor(code: string): string {
+    const std = EMPLOYMENT_GROUP_ORDER.find((o) => o.code === code)
+    if (std) return std.label
+    const first = grouped.get(code)?.[0]
+    return first?.employmentLabel ?? code
+  }
+
+  return (
+    <div className="rounded-2xl bg-muted/25 p-3 shadow-sm ring-1 ring-border/25 dark:bg-muted/15">
+      <div className="mb-2 space-y-0.5 px-0.5">
+        <span className="text-xs font-semibold tracking-tight">근무자 선택</span>
+        <span className="block text-[11px] leading-snug text-muted-foreground">
+          {pickedStaff
+            ? `달력 칸 클릭 시 «${pickedStaff.name}»에게 적용됩니다`
+            : '근무자를 1명 선택해야 셀 클릭이 동작합니다'}
+        </span>
+      </div>
+      <select
+        className={cn(
+          'h-9 w-full rounded-xl border border-border/50 bg-background px-2.5 text-sm shadow-sm transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+          pickedStaffId
+            ? 'text-foreground'
+            : 'text-destructive',
+        )}
+        value={pickedStaffId ?? ''}
+        onChange={(e) => onPick(e.target.value === '' ? null : e.target.value)}
+      >
+        <option value="">— 근무자 선택 —</option>
+        {orderedCodes.map((code) => {
+          const list = grouped.get(code) ?? []
+          if (list.length === 0) return null
+          return (
+            <optgroup key={code} label={labelFor(code)}>
+              {list.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+          )
+        })}
+      </select>
+    </div>
+  )
+}
+
+/**
+ * 월간 근무표 필터 — 직원/고용형태/시프트 다중 토글.
+ * Set이 비어 있으면 전체 통과, 하나라도 선택되면 그 항목만 통과.
+ * `editMode === true`일 때만 헤더 우측 chevron으로 접기/펼치기 토글이 노출됨.
+ * 편집모드 진입 시 기본 접힘 → 헤더에 활성 개수 배지 표시.
+ */
+function MonthScheduleFilters({
+  staffList,
+  staffFilter,
+  setStaffFilter,
+  employmentFilter,
+  setEmploymentFilter,
+  shiftFilter,
+  setShiftFilter,
+  editMode,
+}: {
+  staffList: MonthScheduleStaff[]
+  staffFilter: Set<string>
+  setStaffFilter: (s: Set<string>) => void
+  employmentFilter: Set<string>
+  setEmploymentFilter: (s: Set<string>) => void
+  shiftFilter: Set<ShiftCode>
+  setShiftFilter: (s: Set<ShiftCode>) => void
+  editMode: boolean
+}) {
+  const hasAny =
+    staffFilter.size > 0 || employmentFilter.size > 0 || shiftFilter.size > 0
+  const activeCount =
+    staffFilter.size + employmentFilter.size + shiftFilter.size
+
+  // 편집모드: 기본 접힘. 편집모드 토글 시 재계산.
+  const [open, setOpen] = useState(!editMode)
+  useEffect(() => {
+    setOpen(!editMode)
+  }, [editMode])
+  const showBody = !editMode || open
+
+  function toggleStaff(id: string) {
+    const next = new Set(staffFilter)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setStaffFilter(next)
+  }
+  function toggleEmpl(code: string) {
+    const next = new Set(employmentFilter)
+    if (next.has(code)) next.delete(code)
+    else next.add(code)
+    setEmploymentFilter(next)
+  }
+  function toggleShift(sh: ShiftCode) {
+    const next = new Set(shiftFilter)
+    if (next.has(sh)) next.delete(sh)
+    else next.add(sh)
+    setShiftFilter(next)
+  }
+  function reset() {
+    setStaffFilter(new Set())
+    setEmploymentFilter(new Set())
+    setShiftFilter(new Set())
+  }
+
+  // 고용형태별로 직원 그룹화
+  const grouped = new Map<string, MonthScheduleStaff[]>()
+  for (const s of staffList) {
+    const code = s.employmentCode ?? 'other'
+    if (!grouped.has(code)) grouped.set(code, [])
+    grouped.get(code)!.push(s)
+  }
+  const orderedCodes: string[] = []
+  for (const o of EMPLOYMENT_GROUP_ORDER) {
+    if (grouped.has(o.code)) orderedCodes.push(o.code)
+  }
+  for (const code of [...grouped.keys()].sort()) {
+    if (!orderedCodes.includes(code)) orderedCodes.push(code)
+  }
+  function emplLabel(code: string): string {
+    const std = EMPLOYMENT_GROUP_ORDER.find((o) => o.code === code)
+    if (std) return std.label
+    return grouped.get(code)?.[0]?.employmentLabel ?? code
+  }
+
+  const pillBase =
+    'rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150'
+  const pillOn = 'bg-primary text-primary-foreground shadow-md shadow-primary/15'
+  const pillOff =
+    'bg-background/80 text-foreground shadow-sm ring-1 ring-border/30 hover:bg-muted/45 hover:ring-border/40'
+
+  return (
+    <div className="space-y-2.5 rounded-2xl bg-muted/20 p-3 shadow-sm ring-1 ring-border/25 dark:bg-muted/15">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          {editMode ? (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+              aria-expanded={open}
+              aria-label={open ? '필터 접기' : '필터 펼치기'}
+            >
+              <svg
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform duration-150',
+                  open ? 'rotate-180' : 'rotate-0',
+                )}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+              <span>필터</span>
+              {hasAny ? (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
+                  {activeCount}
+                </span>
+              ) : null}
+            </button>
+          ) : (
+            <span className="text-xs font-medium">필터</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">
+            {hasAny ? '선택된 항목만 표시' : '전체 표시'}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            onClick={reset}
+            disabled={!hasAny}
+          >
+            필터 초기화
+          </Button>
+        </div>
+      </div>
+
+      {showBody ? (
+      <>
+      {/* 직원 */}
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <span className="min-w-[52px] text-[11px] font-semibold text-muted-foreground">
+          직원
+        </span>
+        {staffList.length === 0 ? (
+          <span className="text-[11px] text-muted-foreground">없음</span>
+        ) : (
+          staffList.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => toggleStaff(s.id)}
+              className={cn(pillBase, staffFilter.has(s.id) ? pillOn : pillOff)}
+            >
+              {s.name}
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* 고용형태 */}
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <span className="min-w-[52px] text-[11px] font-semibold text-muted-foreground">
+          고용형태
+        </span>
+        {orderedCodes.length === 0 ? (
+          <span className="text-[11px] text-muted-foreground">없음</span>
+        ) : (
+          orderedCodes.map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => toggleEmpl(code)}
+              className={cn(
+                pillBase,
+                employmentFilter.has(code) ? pillOn : pillOff,
+              )}
+            >
+              {emplLabel(code)}
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* 시프트 */}
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <span className="min-w-[52px] text-[11px] font-semibold text-muted-foreground">
+          시프트
+        </span>
+        {(['open', 'middle', 'close'] as const).map((sh) => (
+          <button
+            key={sh}
+            type="button"
+            onClick={() => toggleShift(sh)}
+            className={cn(pillBase, shiftFilter.has(sh) ? pillOn : pillOff)}
+          >
+            {SHIFT_LABEL[sh]}
+          </button>
+        ))}
+      </div>
+      </>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * 월간 근무표 — 월급제 직원의 휴무 현황 표.
+ * `omitOffDateList`: true면 «휴무일» 날짜 열 생략(좁은 3열 레이아웃용).
+ */
+function MonthOffDaysSummary({
+  ym,
+  dim,
+  staffList,
+  draft,
+  omitOffDateList = false,
+}: {
+  ym: string
+  dim: number
+  staffList: MonthScheduleStaff[]
+  draft: Record<string, MonthDraftCell>
+  omitOffDateList?: boolean
+}) {
+  const salaryStaff = staffList.filter((s) => s.pay_mode === 'salary')
+  if (salaryStaff.length === 0) return null
+
+  return (
+    <div className="rounded-2xl bg-muted/25 p-4 shadow-sm ring-1 ring-border/25 dark:bg-muted/15">
+      <p className="mb-3 text-xs font-semibold tracking-tight">
+        월 휴무 현황{' '}
+        <span className="text-muted-foreground font-normal">
+          (월급제 직원만 · 배정하지 않은 일자)
+        </span>
+      </p>
+      <div className="overflow-x-auto">
+        <table
+          className={cn(
+            'w-full border-collapse text-xs',
+            omitOffDateList ? 'min-w-0' : 'min-w-[480px]',
+          )}
+        >
+          <thead>
+            <tr className="border-b border-border/50 text-muted-foreground">
+              <th className="py-1.5 pr-2 text-left font-medium">이름</th>
+              <th className="py-1.5 pr-2 text-right font-medium">휴무일 의무</th>
+              <th className={cn('py-1.5 text-right font-medium', !omitOffDateList && 'pr-3')}>
+                사용 휴무일수
+              </th>
+              {!omitOffDateList ? (
+                <th className="py-1.5 text-left font-medium">휴무일</th>
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            {salaryStaff.map((s) => {
+              const required = s.requiredOffDays ?? 8
+              const offDates: number[] = []
+              for (let d = 1; d <= dim; d++) {
+                const key = `${s.id}|${ym}-${String(d).padStart(2, '0')}`
+                if (!draft[key]) offDates.push(d)
+              }
+              const offDays = offDates.length
+              const diff = offDays - required
+              let usedClass = 'text-emerald-700 dark:text-emerald-300'
+              let usedSuffix = ''
+              if (diff < 0) {
+                usedClass = 'text-destructive'
+                usedSuffix = ` (⚠ ${-diff}일 부족)`
+              } else if (diff > 0) {
+                usedClass = 'text-destructive'
+                usedSuffix = ` (🔺 ${diff}일 초과)`
+              }
+              return (
+                <tr key={s.id} className="border-b border-border/30 last:border-b-0">
+                  <td className="py-1.5 pr-2 font-medium">{s.name}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
+                    {required}일
+                  </td>
+                  <td className={cn('py-1.5 text-right tabular-nums font-medium', !omitOffDateList && 'pr-3', usedClass)}>
+                    {offDays}일{usedSuffix}
+                  </td>
+                  {!omitOffDateList ? (
+                    <td className="py-1.5 text-[11px] text-muted-foreground tabular-nums">
+                      {offDates.length > 0 ? offDates.join(', ') : '—'}
+                    </td>
+                  ) : null}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** 읽기 전용 — 하루 단위 근무 막대(출퇴근 화면과 유사한 시간축) */
+type MonthDayTimelineRow = {
+  staff: MonthScheduleStaff
+  shift: ShiftCode
+  startHm: string
+  endHm: string
+}
+
+/** 일별 타임라인 막대 — 직선에 가깝게(겹침·경계 가독성), 시프트별 왼쪽 강조선 */
+function timelineBarAccent(shift: ShiftCode): string {
+  if (shift === 'open') return 'border-l-[3px] border-l-primary'
+  if (shift === 'middle') return 'border-l-[3px] border-l-blue-600 dark:border-l-blue-400'
+  if (shift === 'close') return 'border-l-[3px] border-l-amber-600 dark:border-l-amber-400'
+  return 'border-l-[3px] border-l-muted-foreground'
+}
+
+function MonthDayShiftTimeline({
+  workDate,
+  rows,
+  onClose,
+  embedded = false,
+}: {
+  workDate: string
+  rows: MonthDayTimelineRow[]
+  onClose: () => void
+  /** 달력 격자 `col-span-7` 안에 끼워 넣을 때 — 바깥 여밉·모서리 생략 */
+  embedded?: boolean
+}) {
+  const { startMin, endMin, hourSlotStarts } = useMemo(() => {
+    let minS = 9 * 60
+    let maxE = 21 * 60
+    for (const r of rows) {
+      let a = shiftHmToMinutes(r.startHm) ?? minS
+      let b = shiftHmToMinutes(r.endHm) ?? maxE
+      if (b <= a) b += 24 * 60
+      minS = Math.min(minS, a)
+      maxE = Math.max(maxE, b)
+    }
+    minS = Math.max(0, Math.floor(minS / 60) * 60 - 60)
+    maxE = Math.min(24 * 60, Math.ceil(maxE / 60) * 60 + 60)
+    if (maxE <= minS) maxE = minS + 12 * 60
+    /** 1시간 = 1열. 각 값은 그 열의 왼쪽(정각) 시각(분). 마지막 열은 [endMin-60, endMin). */
+    const rangeMin = maxE - minS
+    const slotCount = Math.max(1, Math.round(rangeMin / 60))
+    const slotStarts = Array.from({ length: slotCount }, (_, i) => minS + i * 60)
+    return { startMin: minS, endMin: maxE, hourSlotStarts: slotStarts }
+  }, [rows])
+
+  const range = Math.max(1, endMin - startMin)
+  const dow = new Date(`${workDate}T12:00:00`).getDay()
+  const titleDow = DOW_KO[dow]
+  const [, mm, dd] = workDate.split('-')
+  /** 타임라인 격자 안 — 바깥 `bg-background`보다 살짝만 옅은 흰색 */
+  const timelineInnerBg = 'bg-neutral-50 dark:bg-muted/25'
+
+  return (
+    <div
+      className={cn(
+        embedded
+          ? 'rounded-b-xl bg-background'
+          : 'mt-4 rounded-2xl border border-border/45 bg-background shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.07]',
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/35 bg-muted/10 px-4 py-3.5 sm:px-5 sm:py-4">
+        <div className="min-w-0 pr-2">
+          <p className="text-base font-semibold tracking-tight">
+            {parseInt(mm!, 10)}월 {parseInt(dd!, 10)}일 ({titleDow}) 근무 타임라인
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            읽기 전용 · 같은 날짜를 다시 누르면 접습니다. 편집은 «수정»에서 하세요.
+          </p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" className="shrink-0 rounded-full" onClick={onClose}>
+          닫기
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="px-4 py-10 text-center text-sm text-muted-foreground sm:px-5">
+          이 날짜에 표시할 근무 배정이 없습니다. (필터를 쓰는 경우 선택에 맞게 줄어듭니다.)
+        </p>
+      ) : (
+        <div className="overflow-x-auto bg-background px-3 pb-6 pt-3 sm:px-5 sm:pb-7 sm:pt-4">
+          <div
+            className={cn(
+              'min-w-[520px] overflow-hidden rounded-xl pb-3 shadow-sm ring-1 ring-border/20 sm:pb-4',
+              timelineInnerBg,
+            )}
+          >
+            <div className="flex">
+              <div className={cn('w-24 shrink-0', timelineInnerBg)} aria-hidden />
+              <div
+                className={cn(
+                  'grid flex-1 border-b-2 border-r border-border/40',
+                  timelineInnerBg,
+                )}
+                style={{
+                  gridTemplateColumns: `repeat(${hourSlotStarts.length}, minmax(2rem, 1fr))`,
+                }}
+              >
+                {hourSlotStarts.map((t, i) => (
+                  <div
+                    key={t}
+                    className={cn(
+                      'border-l border-border/45 py-2.5 text-center text-[11px] font-semibold tabular-nums text-foreground/85 sm:py-3',
+                      i === 0 && 'border-l-0',
+                    )}
+                  >
+                    {Math.floor(t / 60)}시
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {rows.map((row) => {
+              let a = shiftHmToMinutes(row.startHm) ?? startMin
+              let b = shiftHmToMinutes(row.endHm) ?? endMin
+              if (b <= a) b += 24 * 60
+              const left = ((a - startMin) / range) * 100
+              const width = Math.max(((b - a) / range) * 100, 2.5)
+              return (
+                <div
+                  key={row.staff.id}
+                  className={cn(
+                    'flex items-stretch last:[&>div]:border-b-0',
+                    timelineInnerBg,
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex w-24 shrink-0 flex-col items-center justify-center border-b border-r border-border/45 px-2 py-3 text-center text-xs font-semibold leading-snug text-foreground sm:py-3.5',
+                      timelineInnerBg,
+                    )}
+                  >
+                    <span className="line-clamp-2 w-full text-center">{row.staff.name}</span>
+                  </div>
+                  <div
+                    className={cn(
+                      'relative min-h-[3.25rem] flex-1 border-b border-r border-border/45 sm:min-h-14',
+                      timelineInnerBg,
+                    )}
+                  >
+                    <div
+                      className="pointer-events-none absolute inset-0 grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${hourSlotStarts.length}, 1fr)`,
+                      }}
+                    >
+                      {hourSlotStarts.map((t, i) => (
+                        <div
+                          key={t}
+                          className={cn(
+                            'border-l border-border/40 bg-transparent',
+                            i === 0 && 'border-l-0',
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <div
+                      className="absolute inset-y-2 z-[1] min-w-[2.25rem] sm:inset-y-2.5"
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                    >
+                      <div
+                        className={cn(
+                          'flex h-full min-h-8 items-center justify-center gap-1.5 rounded-md border border-border/50 bg-muted px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-foreground shadow-sm sm:min-h-9 sm:px-3 sm:text-xs',
+                          timelineBarAccent(row.shift),
+                        )}
+                        title={`${SHIFT_LABEL[row.shift]} ${row.startHm}–${row.endHm}`}
+                      >
+                        <span className="truncate text-foreground">
+                          {SHIFT_LABEL[row.shift]}
+                        </span>
+                        <span className="shrink-0 text-foreground/95">
+                          {row.startHm}–{row.endHm}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type MonthScheduleGridProps = {
+  ym: string
+  onYmChange: (v: string) => void
+  staffList: MonthScheduleStaff[]
+  cells: import('@/hooks/useMonthSchedule').MonthCellRow[]
+  draft: Record<string, MonthDraftCell>
+  loading: boolean
+  saving: boolean
+  /** 셀 클릭 시 draft 반영(편집 모드). 읽기 모드 날짜 클릭은 그리드 내부에서 타임라인만 토글 */
+  onCellApply: (staffId: string, workDate: string, value: MonthDraftCell) => void
+  onApplyDefaults: () => void
+  /** 저장 결과 — true=성공(편집모드 종료), false=실패 또는 변경없음 */
+  onSave: () => Promise<boolean> | boolean
+  /** 「취소」 시 draft를 DB cells 기반으로 복원 */
+  onResetDraft: () => void
+  defaultsBusy: boolean
+  /** tooltip 상세 시간 표시용 */
+  store?: import('@/lib/shiftResolver').StoreShiftColumns | null
+}
+
+type ShiftMode = 'open' | 'middle' | 'close' | 'manual' | 'off'
+
+function MonthScheduleGrid({
+  ym,
+  onYmChange,
+  staffList,
+  draft,
+  loading,
+  saving,
+  onCellApply,
+  onApplyDefaults,
+  onSave,
+  onResetDraft,
+  defaultsBusy,
+  store = null,
+}: MonthScheduleGridProps) {
+  const [pickedStaffId, setPickedStaffId] = useState<string | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [shiftMode, setShiftMode] = useState<ShiftMode | null>(null)
+  const [manualShift, setManualShift] = useState<ShiftCode>('open')
+  const [manualStart, setManualStart] = useState('09:00')
+  const [manualEnd, setManualEnd] = useState('14:00')
+  /** 필터 — Set이 비어있으면 전체 표시. 하나라도 선택되면 그것만. */
+  const [staffFilter, setStaffFilter] = useState<Set<string>>(new Set())
+  const [employmentFilter, setEmploymentFilter] = useState<Set<string>>(new Set())
+  const [shiftFilter, setShiftFilter] = useState<Set<ShiftCode>>(new Set())
+  /** 칩 마우스오버 — portal로 fixed tooltip (HTML title 대신) */
+  const [chipHover, setChipHover] = useState<{
+    clientX: number
+    clientY: number
+    label: string
+  } | null>(null)
+  /** 읽기 모드에서 날짜 클릭 시 하단 타임라인에 표시할 yyyy-mm-dd */
+  const [viewTimelineDate, setViewTimelineDate] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (editMode) setViewTimelineDate(null)
+  }, [editMode])
+
+  useEffect(() => {
+    setViewTimelineDate(null)
+  }, [ym])
+
+  async function handleSaveClick() {
+    const success = await onSave()
+    if (success) setEditMode(false)
+  }
+
+  function handleCancel() {
+    if (!window.confirm('수정사항이 초기화됩니다. 취소하시겠습니까?')) return
+    onResetDraft()
+    setEditMode(false)
+  }
+
+  function handleApplyDefaultsClick() {
+    if (!editMode) {
+      window.alert('먼저 «수정»을 눌러 편집 모드로 진입해 주세요.')
+      return
+    }
+    onApplyDefaults()
+  }
+
+  function buildNextValue(): MonthDraftCell {
+    if (shiftMode === null) return null
+    if (shiftMode === 'off') return null
+    if (shiftMode === 'manual') {
+      if (!manualStart || !manualEnd) return null
+      if (manualEnd <= manualStart) return null
+      return { shift: manualShift, start_time: manualStart, end_time: manualEnd }
+    }
+    return { shift: shiftMode, start_time: null, end_time: null }
+  }
+
+  const [y, m] = ym.split('-').map(Number)
+  const dim = y && m ? daysInMonth(y, m) : 30
+  const todayYmd = formatYmdLocal(new Date())
+
+  const effStore = useMemo(
+    () =>
+      store ?? {
+        shift_open_start: null,
+        shift_open_end: null,
+        shift_middle_start: null,
+        shift_middle_end: null,
+        shift_close_start: null,
+        shift_close_end: null,
+      },
+    [store],
+  )
+
+  function navMonth(delta: number) {
+    const d = new Date(y, m - 1 + delta, 1)
+    const ny = d.getFullYear()
+    const nm = d.getMonth() + 1
+    onYmChange(`${ny}-${String(nm).padStart(2, '0')}`)
+  }
+
+  // 달력 칸 배열 (null = 빈 칸, string = yyyy-mm-dd)
+  const firstDow = new Date(y, m - 1, 1).getDay()
+  const calDates: (string | null)[] = Array(firstDow).fill(null)
+  for (let d = 1; d <= dim; d++) {
+    calDates.push(`${ym}-${String(d).padStart(2, '0')}`)
+  }
+  while (calDates.length % 7 !== 0) calDates.push(null)
+
+  const calWeeks: (string | null)[][] = []
+  for (let i = 0; i < calDates.length; i += 7) {
+    calWeeks.push(calDates.slice(i, i + 7))
+  }
+
+  function passesFilters(staff: MonthScheduleStaff, cell: MonthDraftCell): boolean {
+    if (!cell) return false
+    if (staffFilter.size > 0 && !staffFilter.has(staff.id)) return false
+    if (employmentFilter.size > 0) {
+      const code = staff.employmentCode ?? 'other'
+      if (!employmentFilter.has(code)) return false
+    }
+    if (shiftFilter.size > 0 && !shiftFilter.has(cell.shift)) return false
+    return true
+  }
+
+  function assignedOn(date: string) {
+    const filtered = staffList.filter((s) => {
+      const v = draft[`${s.id}|${date}`]
+      if (v === null || v === undefined) return false
+      return passesFilters(s, v)
+    })
+    if (!store) return filtered
+    // 근무 시작 시간 이른 순으로 정렬 (cell 예외 > 매장 기본)
+    return filtered.slice().sort((a, b) => {
+      const ca = draft[`${a.id}|${date}`]!
+      const cb = draft[`${b.id}|${date}`]!
+      const startA = getShiftTimeForDay(
+        ca.shift,
+        { start_time: ca.start_time, end_time: ca.end_time },
+        store,
+      ).startTime
+      const startB = getShiftTimeForDay(
+        cb.shift,
+        { start_time: cb.start_time, end_time: cb.end_time },
+        store,
+      ).startTime
+      if (startA !== startB) return startA.localeCompare(startB)
+      // 같은 시작 시간이면 이름순(안정 정렬 보조)
+      return a.name.localeCompare(b.name, 'ko')
+    })
+  }
+
+  /** 휴무 표용 — 시프트 필터 제외하고 직원·고용형태 필터만 적용한 staffList */
+  const filteredStaffForSummary = useMemo(
+    () =>
+      staffList.filter((s) => {
+        if (staffFilter.size > 0 && !staffFilter.has(s.id)) return false
+        if (employmentFilter.size > 0) {
+          const code = s.employmentCode ?? 'other'
+          if (!employmentFilter.has(code)) return false
+        }
+        return true
+      }),
+    [staffList, staffFilter, employmentFilter],
+  )
+
+  const timelineRows: MonthDayTimelineRow[] = useMemo(() => {
+    if (!viewTimelineDate) return []
+    const filtered = staffList.filter((s) => {
+      const v = draft[`${s.id}|${viewTimelineDate}`]
+      if (v == null || v === undefined) return false
+      return passesFilters(s, v)
+    })
+    let list = filtered
+    if (store) {
+      list = filtered.slice().sort((a, b) => {
+        const ca = draft[`${a.id}|${viewTimelineDate}`]!
+        const cb = draft[`${b.id}|${viewTimelineDate}`]!
+        const startA = getShiftTimeForDay(
+          ca.shift,
+          { start_time: ca.start_time, end_time: ca.end_time },
+          effStore,
+        ).startTime
+        const startB = getShiftTimeForDay(
+          cb.shift,
+          { start_time: cb.start_time, end_time: cb.end_time },
+          effStore,
+        ).startTime
+        if (startA !== startB) return startA.localeCompare(startB)
+        return a.name.localeCompare(b.name, 'ko')
+      })
+    } else {
+      list = filtered.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    }
+    return list.map((s) => {
+      const cell = draft[`${s.id}|${viewTimelineDate}`]!
+      const t = getShiftTimeForDay(cell.shift, cell, effStore)
+      return {
+        staff: s,
+        shift: cell.shift,
+        startHm: t.startTime,
+        endHm: t.endTime,
+      }
+    })
+  }, [
+    viewTimelineDate,
+    staffList,
+    draft,
+    staffFilter,
+    employmentFilter,
+    shiftFilter,
+    store,
+    effStore,
+  ])
+
+  function handleReadModeDayClick(date: string) {
+    setViewTimelineDate((prev) => (prev === date ? null : date))
+  }
+
+  function handleEditModeCellClick(date: string) {
+    if (date < todayYmd) {
+      window.alert('지난 날짜는 수정할 수 없습니다.')
+      return
+    }
+    if (!pickedStaffId) {
+      window.alert('상단에서 근무자를 먼저 선택해 주세요.')
+      return
+    }
+    if (shiftMode === null) {
+      window.alert('시프트 모드를 먼저 선택해 주세요.')
+      return
+    }
+    const next = buildNextValue()
+    if (shiftMode === 'manual' && next === null) {
+      window.alert('수동 시각이 올바르지 않습니다 (시작 < 종료, HH:MM).')
+      return
+    }
+    onCellApply(pickedStaffId, date, next)
+  }
+
+  function handleCalendarDayClick(date: string) {
+    if (!editMode) {
+      handleReadModeDayClick(date)
+      return
+    }
+    handleEditModeCellClick(date)
+  }
+
+  return (
+    <Card className="rounded-2xl border-border/45 shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.07]">
+      <CardHeader className="border-b border-border/35 bg-gradient-to-b from-muted/30 to-transparent pb-4">
+        <CardTitle className="text-lg font-semibold tracking-tight">월간 근무표</CardTitle>
+        <CardDescription className="max-w-3xl text-sm leading-relaxed">
+          {editMode
+            ? '편집 모드 — 근무자와 시프트 모드를 고른 뒤 달력 칸을 누르면 배정이 적용됩니다. «휴무(삭제)» 모드일 때만 해당 날짜 배정이 지워집니다. «저장»으로 DB에 반영됩니다.'
+            : '읽기 모드 — 날짜를 누르면 그날 근무 타임라인이 아래에 열립니다. 수정은 «수정»을 누르세요.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5 pt-5">
+        {/* 컨트롤 — 모바일: 월 네비 → 좌/우 액션 / md+: 좌·가운데·우 한 줄 */}
+        <div className="grid max-w-full grid-cols-1 gap-2 rounded-2xl bg-muted/35 px-3 py-2.5 shadow-sm ring-1 ring-border/20 dark:bg-muted/20 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:gap-x-3">
+          <div className="order-2 flex min-w-0 flex-wrap items-center gap-2 md:order-none md:justify-self-start">
+            {editMode ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={defaultsBusy}
+                onClick={handleApplyDefaultsClick}
+              >
+                {defaultsBusy ? '적용 중…' : '📅 기본 근무 세팅'}
+              </Button>
+            ) : null}
+          </div>
+          <div className="order-1 flex w-full min-w-0 justify-center md:order-none md:w-auto md:justify-self-center">
+            <div className="inline-flex max-w-full flex-nowrap items-center gap-1.5 sm:gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-8 shrink-0 rounded-full px-0"
+                onClick={() => navMonth(-1)}
+              >
+                ◀
+              </Button>
+              <div className="relative isolate h-9 w-[11.5rem] max-w-full shrink-0 overflow-hidden rounded-xl border border-border/50 bg-background shadow-sm">
+                <div
+                  className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-7 text-center text-sm font-semibold tabular-nums leading-none text-foreground"
+                  aria-hidden
+                >
+                  <span className="min-w-0 whitespace-nowrap">
+                    {y && m ? `${y}년 ${m}월` : ym}
+                  </span>
+                </div>
+                <span
+                  className="pointer-events-none absolute right-2 top-1/2 z-0 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                >
+                  <svg
+                    className="size-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                </span>
+                {/* 네이티브 input만 겹침 — Base UI Input은 Field 레이아웃과 겹치며 라벨이 잘릴 수 있음 */}
+                <input
+                  type="month"
+                  className="absolute inset-0 z-10 m-0 h-full w-full min-w-0 cursor-pointer appearance-none border-0 bg-transparent p-0 opacity-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  value={ym}
+                  onChange={(e) => onYmChange(e.target.value)}
+                  aria-label={y && m ? `${y}년 ${m}월, 표시할 연·월 변경` : '표시할 연·월 선택'}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-8 shrink-0 rounded-full px-0"
+                onClick={() => navMonth(1)}
+              >
+                ▶
+              </Button>
+            </div>
+          </div>
+          <div className="order-3 flex flex-wrap items-center justify-end gap-2 md:order-none md:justify-self-end">
+            {editMode ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={handleCancel}
+                >
+                  취소
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => void handleSaveClick()}
+                >
+                  {saving ? '저장 중…' : '저장'}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setPickedStaffId(null)
+                  setShiftMode(null)
+                  setEditMode(true)
+                }}
+              >
+                수정
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* 필터 — 직원/고용형태/시프트 다중 토글 */}
+        {staffList.length > 0 ? (
+          <MonthScheduleFilters
+            staffList={staffList}
+            staffFilter={staffFilter}
+            setStaffFilter={setStaffFilter}
+            employmentFilter={employmentFilter}
+            setEmploymentFilter={setEmploymentFilter}
+            shiftFilter={shiftFilter}
+            setShiftFilter={setShiftFilter}
+            editMode={editMode}
+          />
+        ) : null}
+
+        {/* 근무자 선택 · 시프트 모드 · 월 휴무 현황 — 편집 모드 3열 */}
+        {editMode && staffList.length > 0 ? (
+          <div className="grid min-w-0 gap-3 md:grid-cols-3">
+            <div className="min-w-0">
+              <StaffPickerByEmployment
+                staffList={staffList}
+                pickedStaffId={pickedStaffId}
+                onPick={(id) => setPickedStaffId(id)}
+              />
+            </div>
+            <div className="min-w-0 rounded-2xl bg-muted/25 p-3 shadow-sm ring-1 ring-border/25 dark:bg-muted/15">
+              <div className="mb-2 space-y-0.5 px-0.5">
+                <span className="text-xs font-semibold tracking-tight">시프트 모드</span>
+                <span className="block text-[11px] leading-snug text-muted-foreground">
+                  셀 클릭 시 적용할 시프트·시각 또는 휴무 처리
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(['open', 'middle', 'close', 'manual'] as const).map((m) => {
+                  const label = m === 'manual' ? '수동' : SHIFT_LABEL[m]
+                  const isActive = shiftMode === m
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setShiftMode(m)}
+                      className={cn(
+                        'min-w-[58px] flex-1 rounded-full px-2 py-1.5 text-center text-xs font-medium transition-all duration-150',
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                          : 'bg-background/80 text-foreground shadow-sm ring-1 ring-border/30 hover:bg-muted/45 hover:ring-border/45',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+                <button
+                  key="off"
+                  type="button"
+                  onClick={() => setShiftMode('off')}
+                  className={cn(
+                    'min-w-[64px] flex-1 rounded-full px-2 py-1.5 text-center text-xs font-medium transition-all duration-150',
+                    shiftMode === 'off'
+                      ? 'bg-destructive/15 text-destructive shadow-sm ring-2 ring-destructive/35'
+                      : 'bg-background/80 text-destructive/90 shadow-sm ring-1 ring-border/30 hover:bg-muted/45',
+                  )}
+                >
+                  휴무
+                </button>
+              </div>
+              {shiftMode === 'manual' ? (
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                  <select
+                    className="border-input bg-background h-8 w-full rounded-xl border border-border/50 px-2 text-xs shadow-sm sm:w-auto"
+                    value={manualShift}
+                    onChange={(e) =>
+                      setManualShift(e.target.value as ShiftCode)
+                    }
+                  >
+                    {(['open', 'middle', 'close'] as const).map((s) => (
+                      <option key={s} value={s}>
+                        {SHIFT_LABEL[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Input
+                      type="time"
+                      className="h-9 min-w-0 flex-1 text-sm tabular-nums sm:w-[130px] sm:flex-none"
+                      value={manualStart}
+                      onChange={(e) => setManualStart(e.target.value)}
+                    />
+                    <span className="text-muted-foreground text-xs">~</span>
+                    <Input
+                      type="time"
+                      className="h-9 min-w-0 flex-1 text-sm tabular-nums sm:w-[130px] sm:flex-none"
+                      value={manualEnd}
+                      onChange={(e) => setManualEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="min-w-0 md:min-w-[180px]">
+              <MonthOffDaysSummary
+                ym={ym}
+                dim={dim}
+                staffList={filteredStaffForSummary}
+                draft={draft}
+                omitOffDateList
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {loading ? (
+          <p className="text-muted-foreground text-sm">불러오는 중…</p>
+        ) : staffList.length === 0 ? (
+          <p className="text-muted-foreground text-sm">등록된 직원이 없습니다.</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <div className="min-w-[640px]">
+              <div className="overflow-hidden rounded-xl border border-border/45 bg-border/30 shadow-sm ring-1 ring-black/[0.03] dark:bg-border/25 dark:ring-white/[0.06]">
+              {/* 요일 헤더 — 한 줄 테이블 느낌 */}
+              <div className="grid grid-cols-7 border-b border-border/50 bg-muted/50">
+                {DOW_CAL.map((d, i) => (
+                  <div
+                    key={d}
+                    className={cn(
+                      'border-r border-border/35 py-2.5 text-center text-xs font-semibold text-foreground/90 last:border-r-0',
+                      i === 0 && 'text-destructive',
+                      i === 6 && 'text-blue-600 dark:text-blue-400',
+                    )}
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* 달력 격자 — 주 단위로 쪼개 선택일 타임라인을 해당 주·다음 주 사이(col-span-7)에 삽입 */}
+              <div className="grid grid-cols-7 gap-px bg-border/35">
+                {calWeeks.flatMap((week, wi) => {
+                  const rowCells = week.map((date, dowIdx) => {
+                    const globalIdx = wi * 7 + dowIdx
+                    const pickedCell =
+                      date && pickedStaffId
+                        ? draft[`${pickedStaffId}|${date}`] ?? null
+                        : null
+                    const isPast = Boolean(date && date < todayYmd)
+                    const isEditClickable = Boolean(
+                      date && pickedStaffId && shiftMode !== null && editMode && !isPast,
+                    )
+                    const isReadPickable = Boolean(!editMode && date)
+                    return (
+                      <div
+                        key={date ?? `blank-${globalIdx}`}
+                        onClick={() => date && handleCalendarDayClick(date)}
+                        className={cn(
+                          'min-h-[118px] bg-card p-3 transition-colors',
+                          !date && 'min-h-[118px] bg-muted/20',
+                          date === todayYmd &&
+                            'bg-primary/[0.05] ring-1 ring-inset ring-primary/30',
+                          isPast &&
+                            editMode &&
+                            'cursor-not-allowed border border-dashed border-muted-foreground/25 bg-muted/15 opacity-[0.88]',
+                          isReadPickable && 'cursor-pointer hover:bg-muted/35',
+                          isReadPickable &&
+                            date === viewTimelineDate &&
+                            'bg-primary/[0.07] ring-2 ring-inset ring-primary/35',
+                          isEditClickable && 'cursor-pointer hover:bg-muted/30',
+                          isEditClickable && pickedCell && 'ring-1 ring-inset ring-primary/25',
+                        )}
+                      >
+                        {date ? (
+                          <>
+                            <div
+                              className={cn(
+                                'mb-2 text-base font-semibold tabular-nums leading-none',
+                                dowIdx === 0 && 'text-destructive',
+                                dowIdx === 6 && 'text-blue-600 dark:text-blue-400',
+                                date === todayYmd && 'text-primary',
+                              )}
+                            >
+                              {parseInt(date.split('-')[2]!, 10)}
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {assignedOn(date).map((s) => {
+                                const cell = draft[`${s.id}|${date}`]!
+                                const shift = cell.shift
+                                const isSalary = s.pay_mode === 'salary'
+                                let timeRange = ''
+                                if (cell.start_time && cell.end_time) {
+                                  timeRange = `${cell.start_time}~${cell.end_time}`
+                                } else {
+                                  const t = getShiftTimeForDay(shift, null, effStore)
+                                  timeRange = `${t.startTime}~${t.endTime}`
+                                }
+                                const exceptionSuffix =
+                                  cell.start_time && cell.end_time ? ' (당일 예외)' : ''
+                                const tooltipLabel = `[${SHIFT_LABEL[shift]}] ${s.name}${timeRange ? ' ' + timeRange : ''}${exceptionSuffix}`
+                                const onEnter = (e: ReactMouseEvent) =>
+                                  setChipHover({
+                                    clientX: e.clientX,
+                                    clientY: e.clientY,
+                                    label: tooltipLabel,
+                                  })
+                                const onMove = (e: ReactMouseEvent) =>
+                                  setChipHover((prev) =>
+                                    prev
+                                      ? { ...prev, clientX: e.clientX, clientY: e.clientY }
+                                      : prev,
+                                  )
+                                const onLeave = () => setChipHover(null)
+                                return (
+                                  <div
+                                    key={s.id}
+                                    onMouseEnter={onEnter}
+                                    onMouseMove={onMove}
+                                    onMouseLeave={onLeave}
+                                    className={cn(
+                                      'flex w-full items-center gap-1.5 truncate rounded-lg px-1.5 py-1',
+                                      'text-left text-xs leading-snug',
+                                      isSalary
+                                        ? monthShiftClass(shift)
+                                        : monthShiftTextOnlyClass(shift),
+                                    )}
+                                  >
+                                    {isSalary ? (
+                                      <>
+                                        <span className="min-w-0 flex-1 truncate font-medium">
+                                          {s.name}
+                                        </span>
+                                        <span className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold">
+                                          {SHIFT_LABEL[shift]}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        {/* 이름 우선 — shrink-0으로 절대 짤리지 않음. 시간은 공간 부족 시 ellipsis. */}
+                                        <span className="shrink-0 font-medium">
+                                          {s.name}
+                                        </span>
+                                        {timeRange ? (
+                                          <span className="ml-auto min-w-0 shrink truncate text-[11px] font-medium tabular-nums text-foreground/90">
+                                            {timeRange}
+                                          </span>
+                                        ) : null}
+                                      </>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )
+                  })
+                  const showWeekTimeline = Boolean(
+                    viewTimelineDate &&
+                      !editMode &&
+                      week.some((d) => d === viewTimelineDate),
+                  )
+                  return [
+                    ...rowCells,
+                    <div
+                      key={`week-timeline-slot-${wi}`}
+                      className={cn(
+                        'col-span-7 grid overflow-hidden',
+                        'transition-[grid-template-rows] duration-300 ease-out',
+                        'motion-reduce:transition-none motion-reduce:duration-0',
+                        showWeekTimeline ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+                      )}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        {showWeekTimeline ? (
+                          <div
+                            className={cn(
+                              'rounded-b-xl border-t border-border/40 bg-muted/15 px-1 pb-2 pt-0.5 sm:px-1.5 sm:pb-3',
+                              'animate-in fade-in slide-in-from-top-2 duration-300',
+                              'motion-reduce:animate-none',
+                            )}
+                          >
+                            <MonthDayShiftTimeline
+                              embedded
+                              workDate={viewTimelineDate!}
+                              rows={timelineRows}
+                              onClose={() => setViewTimelineDate(null)}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>,
+                  ]
+                })}
+              </div>
+              </div>
+            </div>
+          </div>
+          </>
+        )}
+      </CardContent>
+      {chipHover
+        ? createPortal(
+            <div
+              className="border-border bg-popover text-popover-foreground pointer-events-none fixed z-[10000] max-w-[260px] whitespace-pre-line rounded-xl border px-3 py-2 text-xs shadow-lg"
+              style={{
+                left: chipHover.clientX + 12,
+                top: chipHover.clientY + 12,
+              }}
+            >
+              {chipHover.label}
+            </div>,
+            document.body,
+          )
+        : null}
+    </Card>
   )
 }
 
@@ -1506,6 +2871,8 @@ function PersonRow({
   const hasActualPunchIn = Boolean(actualInIso)
   const hasActualPunchOut = Boolean(actualOutIso)
   const editableId = actualRecord?.id ?? null
+  const todayYmd = formatYmdLocal(new Date())
+  const isPast = dateKey < todayYmd
 
   function openEdit() {
     setEditIn(actualInHm ?? '')
@@ -1639,7 +3006,7 @@ function PersonRow({
         {/* 근무시간 */}
         <td className={`${cell} ${mono} ${muted}`}>{duration}</td>
 
-        {/* 조작 */}
+        {/* 조작 — 상태 기반 강조: 미출근 → 「출근」 primary, 출근완료 → 「퇴근」 primary, 종료 → 「수정」만 */}
         <td className={cell}>
           <div className="flex flex-wrap justify-end gap-1">
             {showPunch ? (
@@ -1647,7 +3014,11 @@ function PersonRow({
                 <Button
                   size="sm"
                   type="button"
-                  className="h-6 px-2 text-xs"
+                  variant={hasActualPunchIn ? 'ghost' : 'default'}
+                  className={cn(
+                    'h-7 px-2.5 text-xs',
+                    !hasActualPunchIn && 'shadow-md shadow-primary/15',
+                  )}
                   disabled={punchIn.isPending || hasActualPunchIn}
                   onClick={() => void handlePunchIn()}
                 >
@@ -1656,8 +3027,13 @@ function PersonRow({
                 <Button
                   size="sm"
                   type="button"
-                  variant="secondary"
-                  className="h-6 px-2 text-xs"
+                  variant={
+                    hasActualPunchIn && !hasActualPunchOut ? 'default' : 'secondary'
+                  }
+                  className={cn(
+                    'h-7 px-2.5 text-xs',
+                    hasActualPunchIn && !hasActualPunchOut && 'shadow-md shadow-primary/15',
+                  )}
                   disabled={punchOut.isPending || !hasActualPunchIn || hasActualPunchOut}
                   onClick={() => void handlePunchOut()}
                 >
@@ -1669,8 +3045,9 @@ function PersonRow({
               size="sm"
               type="button"
               variant="outline"
-              className="h-6 px-2 text-xs"
-              disabled={!editableId || editMode}
+              className="h-7 px-2.5 text-xs"
+              disabled={!editableId || editMode || isPast}
+              title={isPast ? '지난 날짜는 수정할 수 없습니다.' : undefined}
               onClick={openEdit}
             >
               수정
@@ -1705,7 +3082,7 @@ function PersonRow({
                 size="sm"
                 type="button"
                 className="h-7 px-2 text-xs"
-                disabled={correctAttendance.isPending || deleteAttendance.isPending}
+                disabled={correctAttendance.isPending || deleteAttendance.isPending || isPast}
                 onClick={() => void handleSaveEdit()}
               >
                 저장
@@ -1724,7 +3101,7 @@ function PersonRow({
                 type="button"
                 variant="destructive"
                 className="h-7 px-2 text-xs"
-                disabled={correctAttendance.isPending || deleteAttendance.isPending || !editableId}
+                disabled={correctAttendance.isPending || deleteAttendance.isPending || !editableId || isPast}
                 onClick={() => void handleDeleteRecord()}
               >
                 삭제
@@ -1744,6 +3121,53 @@ function PersonRow({
         </tr>
       ) : null}
     </>
+  )
+}
+
+/** 오늘 상태 요약 배지 row — 한눈 카운터 */
+function AttendanceSummaryBadges({
+  counts,
+}: {
+  counts: { working: number; done: number; pending: number; off: number; late: number }
+}) {
+  const base =
+    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none ring-1'
+  const cells: { label: string; n: number; cls: string }[] = [
+    {
+      label: '출근중',
+      n: counts.working,
+      cls: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 ring-emerald-500/25',
+    },
+    {
+      label: '근무종료',
+      n: counts.done,
+      cls: 'bg-slate-500/12 text-slate-700 dark:text-slate-300 ring-slate-500/25',
+    },
+    {
+      label: '미출근',
+      n: counts.pending,
+      cls: 'bg-amber-500/12 text-amber-700 dark:text-amber-300 ring-amber-500/30',
+    },
+    {
+      label: '휴무',
+      n: counts.off,
+      cls: 'bg-muted text-muted-foreground ring-border/40',
+    },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {cells.map((c) => (
+        <span key={c.label} className={cn(base, c.cls)}>
+          {c.label}
+          <span className="font-semibold tabular-nums">{c.n}</span>
+        </span>
+      ))}
+      {counts.late > 0 ? (
+        <span className={cn(base, 'bg-destructive/12 text-destructive ring-destructive/30')}>
+          지각<span className="font-semibold tabular-nums">{counts.late}</span>
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -1798,31 +3222,38 @@ function TodayGanttChart({
   const now = new Date()
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const showNowLine = nowMin >= chartStartMin && nowMin <= chartStartMin + totalMins
+  const nowHmLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
   return (
-    <div className="mb-4 overflow-hidden rounded-xl border border-border/60 bg-card">
+    <div className="mb-3 overflow-hidden rounded-xl bg-background shadow-sm ring-1 ring-border/30">
       <div className="flex">
-        {/* 이름 열 */}
-        <div className="w-[68px] shrink-0 border-r border-border/40">
-          <div className="h-7 border-b border-border/40 bg-muted/30" />
-          {scheduled.map((s) => (
-            <div
-              key={s.id}
-              className="flex h-10 items-center border-b border-border/15 px-2 last:border-b-0"
-            >
-              <span className="truncate text-xs font-medium">{s.name}</span>
-            </div>
-          ))}
+        {/* 이름 열 — 폭 확대, 시프트 컬러 닷 표시 */}
+        <div className="w-[104px] shrink-0 border-r border-border/45">
+          <div className="h-8 border-b border-border/45 bg-muted/40" />
+          {scheduled.map((s) => {
+            const planned = plannedMap.get(`${s.id}_${todayKey}`)!
+            return (
+              <div
+                key={s.id}
+                className="flex h-10 items-center gap-1.5 border-b border-border/25 px-2 last:border-b-0"
+              >
+                <span className="truncate text-xs font-medium">{s.name}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+                  {planned.bandLabel}
+                </span>
+              </div>
+            )
+          })}
         </div>
 
         {/* 타임라인 */}
         <div className="relative min-w-0 flex-1 overflow-x-auto">
           <div className="min-w-[320px]">
             {/* 시간 헤더 */}
-            <div className="flex h-7 border-b border-border/40 bg-muted/30">
+            <div className="flex h-8 border-b border-border/45 bg-muted/40">
               {Array.from({ length: hourCount }, (_, i) => (
-                <div key={i} className="flex-1 border-l border-border/30 px-1">
-                  <span className="text-[10px] leading-7 text-muted-foreground">
+                <div key={i} className="flex-1 border-l border-border/45 px-1 first:border-l-0">
+                  <span className="text-[10px] font-medium leading-8 text-muted-foreground tabular-nums">
                     {minHour + i}시
                   </span>
                 </div>
@@ -1849,13 +3280,13 @@ function TodayGanttChart({
               return (
                 <div
                   key={s.id}
-                  className="relative h-[52px] border-b border-border/15 last:border-b-0"
+                  className="relative h-10 border-b border-border/25 last:border-b-0"
                 >
-                  {/* 격자 선 */}
+                  {/* 격자 선 — 진하게 */}
                   {Array.from({ length: hourCount - 1 }, (_, i) => (
                     <div
                       key={i}
-                      className="pointer-events-none absolute inset-y-0 w-px bg-border/25"
+                      className="pointer-events-none absolute inset-y-0 w-px bg-border/45"
                       style={{ left: `${pct((minHour + i + 1) * 60)}%` }}
                     />
                   ))}
@@ -1863,7 +3294,7 @@ function TodayGanttChart({
                   {/* 예정 바 — 상단 절반, 회색 아웃라인 */}
                   {pLeft != null && pWidth != null && pWidth > 0 && (
                     <div
-                      className="absolute top-[5px] h-[18px] rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/30"
+                      className="absolute top-[5px] h-[14px] rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/35"
                       style={{ left: `${pLeft}%`, width: `${pWidth}%` }}
                     />
                   )}
@@ -1871,7 +3302,7 @@ function TodayGanttChart({
                   {/* 실제 바 — 하단 절반, 초록 솔리드 */}
                   {aLeft != null && (
                     <div
-                      className="absolute bottom-[5px] h-[18px] rounded bg-primary/70"
+                      className="absolute bottom-[5px] h-[14px] rounded bg-primary/80 shadow-sm shadow-primary/15"
                       style={{
                         left: `${aLeft}%`,
                         width: aWidth != null && aWidth > 0 ? `${aWidth}%` : '4px',
@@ -1882,30 +3313,40 @@ function TodayGanttChart({
               )
             })}
 
-            {/* 현재 시각 선 */}
+            {/* 현재 시각 선 — 두께 강화 + 상단 시각 레이블 */}
             {showNowLine && (
-              <div
-                className="pointer-events-none absolute top-7 bottom-0 w-[1.5px] bg-rose-500/60"
-                style={{ left: `${pct(nowMin)}%` }}
-              />
+              <>
+                <div
+                  className="pointer-events-none absolute top-8 bottom-0 w-[2px] bg-rose-500"
+                  style={{ left: `${pct(nowMin)}%` }}
+                />
+                <div
+                  className="pointer-events-none absolute top-0 z-10 flex h-8 -translate-x-1/2 items-center"
+                  style={{ left: `${pct(nowMin)}%` }}
+                >
+                  <span className="rounded-md bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm tabular-nums">
+                    {nowHmLabel}
+                  </span>
+                </div>
+              </>
             )}
           </div>
         </div>
       </div>
 
       {/* 범례 */}
-      <div className="flex items-center gap-4 border-t border-border/30 bg-muted/10 px-4 py-1.5">
+      <div className="flex flex-wrap items-center gap-4 border-t border-border/30 bg-muted/15 px-3 py-1.5">
         <div className="flex items-center gap-1.5">
-          <div className="h-3.5 w-7 rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/30" />
+          <div className="h-3 w-6 rounded bg-muted-foreground/10 ring-1 ring-inset ring-muted-foreground/35" />
           <span className="text-[10px] text-muted-foreground">예정</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="h-3 w-7 rounded bg-primary/70" />
+          <div className="h-3 w-6 rounded bg-primary/80" />
           <span className="text-[10px] text-muted-foreground">실제</span>
         </div>
         {showNowLine && (
           <div className="flex items-center gap-1.5">
-            <div className="h-3.5 w-[1.5px] rounded-full bg-rose-500/60" />
+            <div className="h-3.5 w-[2px] rounded-full bg-rose-500" />
             <span className="text-[10px] text-muted-foreground">현재 시각</span>
           </div>
         )}
@@ -1974,18 +3415,17 @@ function StaffAttendanceSection() {
     return [...set]
   }, [groupedRange, effFrom, effTo])
 
-  const slotQueries = useQueries({
-    queries: weekStartsNeeded.map((ws) => ({
-      queryKey: ['weekSchedule', storeId, ws] as const,
-      queryFn: () => fetchWeekSlots(storeId!, ws),
-      enabled: Boolean(storeId),
-    })),
-  })
-
+  // v1.5.3: 출퇴근 「예정」 표시도 schedule_month_cells 기반으로 통일 (A안 완성)
+  const { data: monthCellsForAttendance } = useMonthCellsDateRange(
+    effFrom || undefined,
+    effTo || undefined,
+  )
   const plannedMap = useMemo(() => {
-    const data = slotQueries.map((q) => q.data)
-    return mergePlannedByStaffDate(weekStartsNeeded, data, settings)
-  }, [weekStartsNeeded, slotQueries, settings])
+    return plannedFromMonthCells(
+      monthCellsForAttendance ?? [],
+      shiftStore?.store ?? null,
+    )
+  }, [monthCellsForAttendance, shiftStore?.store])
 
   function dateHeading(dateKey: string) {
     const [y, m, d] = dateKey.split('-').map(Number)
@@ -2013,16 +3453,99 @@ function StaffAttendanceSection() {
     return out
   }, [effFrom, effTo, todayKey])
 
-  function setThisWeek() {
-    setRangeFrom(thisWeekStart)
-    setRangeTo(thisWeekEnd)
+  /** 빠른 기간 프리셋 — chip row */
+  type PresetKey = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'last30'
+  function applyPreset(p: PresetKey) {
+    const now = new Date()
+    if (p === 'today') {
+      const k = formatYmdLocal(now)
+      setRangeFrom(k); setRangeTo(k); return
+    }
+    if (p === 'yesterday') {
+      const y = formatYmdLocal(addDaysLocal(now, -1))
+      setRangeFrom(y); setRangeTo(y); return
+    }
+    if (p === 'thisWeek') {
+      setRangeFrom(thisWeekStart); setRangeTo(thisWeekEnd); return
+    }
+    if (p === 'lastWeek') {
+      const lws = addDaysLocal(parseYmdLocal(thisWeekStart), -7)
+      const lwe = addDaysLocal(lws, 6)
+      setRangeFrom(formatYmdLocal(lws)); setRangeTo(formatYmdLocal(lwe)); return
+    }
+    if (p === 'thisMonth') {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1)
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      setRangeFrom(formatYmdLocal(first)); setRangeTo(formatYmdLocal(last)); return
+    }
+    if (p === 'last30') {
+      const start = addDaysLocal(now, -29)
+      setRangeFrom(formatYmdLocal(start)); setRangeTo(formatYmdLocal(now)); return
+    }
   }
+  /** 현재 from~to가 어느 프리셋과 일치하는지 — 활성 표시용 */
+  const activePreset: PresetKey | null = useMemo(() => {
+    if (!effFrom || !effTo) return null
+    const today = formatYmdLocal(new Date())
+    if (effFrom === today && effTo === today) return 'today'
+    const ymd = formatYmdLocal(addDaysLocal(new Date(), -1))
+    if (effFrom === ymd && effTo === ymd) return 'yesterday'
+    if (effFrom === thisWeekStart && effTo === thisWeekEnd) return 'thisWeek'
+    const lws = formatYmdLocal(addDaysLocal(parseYmdLocal(thisWeekStart), -7))
+    const lwe = formatYmdLocal(addDaysLocal(parseYmdLocal(lws), 6))
+    if (effFrom === lws && effTo === lwe) return 'lastWeek'
+    const now = new Date()
+    const monthFirst = formatYmdLocal(new Date(now.getFullYear(), now.getMonth(), 1))
+    const monthLast = formatYmdLocal(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+    if (effFrom === monthFirst && effTo === monthLast) return 'thisMonth'
+    const l30Start = formatYmdLocal(addDaysLocal(new Date(), -29))
+    if (effFrom === l30Start && effTo === today) return 'last30'
+    return null
+  }, [effFrom, effTo, thisWeekStart, thisWeekEnd])
+
+  const PRESET_LABELS: { key: PresetKey; label: string }[] = [
+    { key: 'today', label: '오늘' },
+    { key: 'yesterday', label: '어제' },
+    { key: 'thisWeek', label: '이번 주' },
+    { key: 'lastWeek', label: '지난 주' },
+    { key: 'thisMonth', label: '이번 달' },
+    { key: 'last30', label: '최근 30일' },
+  ]
+
+  /** 오늘 상태 카운터 — 한눈에 「누가 왔고, 누가 안왔는지」 파악용 */
+  const todaySummary = useMemo(() => {
+    const counts = { working: 0, done: 0, pending: 0, off: 0, late: 0 }
+    const list = staffList ?? []
+    const tg = groupedToday.find((d) => d.dateKey === todayKey)
+    for (const s of list) {
+      const planned = plannedMap.get(`${s.id}_${todayKey}`)
+      const block = tg?.blocks.find((b) => b.staff_id === s.id)
+      const aIn = block?.actual?.check_in ?? null
+      const aOut = block?.actual?.check_out ?? null
+      if (!planned) {
+        counts.off++
+        continue
+      }
+      if (aIn && aOut) counts.done++
+      else if (aIn) counts.working++
+      else counts.pending++
+      if (aIn && planned.startHm) {
+        const p = hmToMin(planned.startHm)
+        const a = isoLocalMin(aIn)
+        if (p != null && a != null && a - p > 0) counts.late++
+      }
+    }
+    return counts
+  }, [staffList, plannedMap, groupedToday, todayKey])
+
+  const _nowDate = new Date()
+  const nowHm = `${String(_nowDate.getHours()).padStart(2, '0')}:${String(_nowDate.getMinutes()).padStart(2, '0')}`
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">출퇴근 기록</CardTitle>
-        <CardDescription>
+    <Card className="rounded-2xl border-border/45 shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+      <CardHeader className="border-b border-border/35 bg-gradient-to-b from-muted/25 to-transparent pb-4">
+        <CardTitle className="text-lg font-semibold tracking-tight">출퇴근 기록</CardTitle>
+        <CardDescription className="text-sm leading-relaxed">
           «근무표»에 저장된 주간 슬롯이 예정(계획)으로 표시됩니다. 실제는 출근·퇴근
           기록입니다.{' '}
           <span className="text-muted-foreground">
@@ -2030,10 +3553,23 @@ function StaffAttendanceSection() {
           </span>
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* 1) 오늘 — 기간 필터와 무관하게 항상 상단 고정 */}
-        <section>
-          <p className="mb-3 text-sm font-medium">오늘 ({todayKey})</p>
+      <CardContent className="space-y-5 pt-5">
+        {/* 1) 오늘 — 기간 필터와 무관하게 항상 상단 고정. 헤더·요약·차트·표를 하나의 ring 박스에 묶음. */}
+        <section className="rounded-2xl bg-card p-3 shadow-sm ring-1 ring-border/25 dark:bg-card/95">
+          {/* 헤더 — 좌: 오늘 + 현재시각, 우: 상태 요약 배지 */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-0.5">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-semibold tracking-tight">오늘</span>
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                {dateHeading(todayKey)}
+              </span>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                · 현재 {nowHm}
+              </span>
+            </div>
+            <AttendanceSummaryBadges counts={todaySummary} />
+          </div>
+
           <TodayGanttChart
             staffList={staffList ?? []}
             plannedMap={plannedMap}
@@ -2067,11 +3603,39 @@ function StaffAttendanceSection() {
           </div>
         </section>
 
-        {/* 2) 날짜 셀렉 UI */}
-        <section className="border-border/60 rounded-lg border bg-muted/10 p-3">
-          <div className="flex flex-wrap items-end gap-2">
+        {/* 2) 날짜 셀렉 UI — 근무표 필터 패널과 동일 톤. 프리셋 chip row 추가. */}
+        <section className="space-y-2.5 rounded-2xl bg-muted/20 p-3 shadow-sm ring-1 ring-border/25 dark:bg-muted/15">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-xs font-semibold tracking-tight">조회 기간</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {effFrom || '—'} ~ {effTo || '—'}
+            </span>
+          </div>
+          {/* 프리셋 chip row */}
+          <div className="flex flex-wrap items-center gap-1.5 px-0.5">
+            {PRESET_LABELS.map(({ key, label }) => {
+              const on = activePreset === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => applyPreset(key)}
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150',
+                    on
+                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/15'
+                      : 'bg-background/80 text-foreground shadow-sm ring-1 ring-border/30 hover:bg-muted/45 hover:ring-border/40',
+                  )}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          {/* 수동 날짜 입력 */}
+          <div className="flex flex-wrap items-end gap-2 px-0.5">
             <div className="grid gap-1">
-              <span className="text-xs text-muted-foreground">시작 날짜</span>
+              <span className="text-[11px] text-muted-foreground">시작 날짜</span>
               <Input
                 type="date"
                 className="h-9 w-[160px]"
@@ -2080,9 +3644,9 @@ function StaffAttendanceSection() {
                 onChange={(e) => setRangeFrom(e.target.value)}
               />
             </div>
-            <span className="text-muted-foreground pb-2">~</span>
+            <span className="pb-2 text-muted-foreground">~</span>
             <div className="grid gap-1">
-              <span className="text-xs text-muted-foreground">종료 날짜</span>
+              <span className="text-[11px] text-muted-foreground">종료 날짜</span>
               <Input
                 type="date"
                 className="h-9 w-[160px]"
@@ -2091,27 +3655,36 @@ function StaffAttendanceSection() {
                 onChange={(e) => setRangeTo(e.target.value)}
               />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              onClick={setThisWeek}
-            >
-              이번 주
-            </Button>
           </div>
         </section>
 
         {/* 3) 셀렉한 기간의 일별 카드 — 오늘은 제외. 과거는 회색, 미래는 그대로. */}
         <section className="space-y-3">
-          <p className="text-xs font-medium text-muted-foreground">
-            이전 기록 ({effFrom || '—'} ~ {effTo || '—'})
-          </p>
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-xs font-semibold tracking-tight">이전 기록</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {rangeDateKeys.length}일
+            </span>
+          </div>
           {rangeDateKeys.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              해당 기간의 기록이 없습니다.
-            </p>
+            <div className="rounded-2xl bg-muted/15 p-6 text-center shadow-sm ring-1 ring-border/25">
+              <svg
+                className="mx-auto mb-2 size-8 text-muted-foreground/50"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <path d="M16 2v4M8 2v4M3 10h18M9 16h.01M13 16h.01M17 16h.01" />
+              </svg>
+              <p className="text-sm text-muted-foreground">
+                해당 기간의 기록이 없습니다.
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
               {rangeDateKeys.map((dateKey) => {
@@ -2123,24 +3696,34 @@ function StaffAttendanceSection() {
                   <div
                     key={dateKey}
                     className={cn(
-                      'border-border/60 rounded-xl border bg-card p-3 shadow-sm',
-                      isPast && 'opacity-60',
+                      'rounded-2xl bg-card p-3 shadow-sm ring-1 ring-border/25 dark:bg-card/95',
+                      isPast && 'opacity-70',
                     )}
                   >
                     <div
                       className={cn(
-                        'mb-2 flex items-center gap-2',
+                        'mb-2 flex items-center gap-2 px-0.5',
                         isPast ? 'text-muted-foreground' : 'text-foreground',
                       )}
                     >
-                      <span aria-hidden className="text-base">
-                        📅
-                      </span>
-                      <span className="text-sm font-medium">
+                      <svg
+                        className="size-4 shrink-0 text-muted-foreground"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                        <path d="M16 2v4M8 2v4M3 10h18" />
+                      </svg>
+                      <span className="text-sm font-semibold tracking-tight">
                         {dateHeading(dateKey)}
                       </span>
                       {isPast ? (
-                        <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
                           과거
                         </span>
                       ) : null}
@@ -2188,14 +3771,14 @@ function StaffChecklistSection() {
   const deleteItem = useDeleteChecklistItem()
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">시간대별 체크리스트</CardTitle>
-        <CardDescription>
+    <Card className="rounded-2xl border-border/45 shadow-md ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+      <CardHeader className="border-b border-border/35 bg-gradient-to-b from-muted/25 to-transparent pb-4">
+        <CardTitle className="text-lg font-semibold tracking-tight">시간대별 체크리스트</CardTitle>
+        <CardDescription className="text-sm leading-relaxed">
           항목은 매장 공통입니다. 완료 시 로그가 쌓입니다.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 pt-5">
         <div className="grid gap-4 sm:max-w-md sm:grid-cols-2">
           <div className="grid gap-2">
             <Label>근무 구간</Label>
