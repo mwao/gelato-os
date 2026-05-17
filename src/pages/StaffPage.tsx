@@ -2,7 +2,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet } from 'react-router-dom'
-import { useQueries, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { AuthLoading } from '@/components/auth/AuthLoading'
 import { Button } from '@/components/ui/button'
@@ -25,13 +25,8 @@ import {
   formatYmdLocal,
   parseYmdLocal,
   SHIFT_LABEL,
-  shiftForSlotIndex,
   startOfIsoWeekMonday,
   type ShiftTimeSettings,
-  weekSlotBandBgClass,
-  weekStaffChipShellClass,
-  WEEK_GRID_DOW_KO,
-  WEEK_SLOT_LABELS,
 } from '@/lib/dateUtils'
 import { groupAttendanceByDateStaff, type StaffDayBlock } from '@/lib/attendanceDisplay'
 import {
@@ -76,7 +71,6 @@ import {
 } from '@/hooks/useStaff'
 import {
   buildMonthDraftFromProfiles,
-  fetchStaffWithDefaultShifts,
   useMonthCells,
   useMonthCellsDateRange,
   usePersistMonthScheduleDraft,
@@ -3366,8 +3360,6 @@ function StaffAttendanceSection() {
   const [rangeFrom, setRangeFrom] = useState(thisWeekStart)
   const [rangeTo, setRangeTo] = useState(thisWeekEnd)
 
-  const { data: store } = useStoreQuery()
-  const storeId = store?.id
   const { data: staffList } = useStaffList()
 
   // 기간 정상화 (from > to 면 swap). 오늘 포함 보장을 위해 effectiveFrom/effectiveTo 분리.
@@ -3390,7 +3382,6 @@ function StaffAttendanceSection() {
   })
 
   const { data: shiftStore } = useShiftTimeSettings()
-  const settings = shiftStore?.settings ?? DEFAULT_SHIFT_TIME_SETTINGS
 
   const groupedRange = useMemo(
     () => groupAttendanceByDateStaff(rangeRows ?? []),
@@ -3400,20 +3391,6 @@ function StaffAttendanceSection() {
     () => groupAttendanceByDateStaff(todayRows ?? []),
     [todayRows],
   )
-
-  // 주간 슬롯(예정) 도출에 필요한 weekStart 집합 — 오늘 + 기간 + 그룹 데이터 전부 커버.
-  const weekStartsNeeded = useMemo(() => {
-    const set = new Set<string>()
-    set.add(formatYmdLocal(startOfIsoWeekMonday(new Date())))
-    if (effFrom)
-      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(effFrom))))
-    if (effTo)
-      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(effTo))))
-    for (const g of groupedRange) {
-      set.add(formatYmdLocal(startOfIsoWeekMonday(parseYmdLocal(g.dateKey))))
-    }
-    return [...set]
-  }, [groupedRange, effFrom, effTo])
 
   // v1.5.3: 출퇴근 「예정」 표시도 schedule_month_cells 기반으로 통일 (A안 완성)
   const { data: monthCellsForAttendance } = useMonthCellsDateRange(

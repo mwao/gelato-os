@@ -34,8 +34,8 @@ export const DEFAULT_STORE_NAME = '내 매장'
  * 매장이 없는 상태(=신규 가입 직후)는 Onboarding 페이지에서 처리하며,
  * 매장이 반드시 있어야 하는 mutation 등에서만 이 함수를 호출한다.
  */
-export async function ensureStore(ownerId: string): Promise<StoreRow> {
-  const store = await fetchPrimaryStore(ownerId)
+export async function ensureStore(_ownerId: string): Promise<StoreRow> {
+  const store = await fetchPrimaryStore()
   if (!store) {
     throw new Error(
       '매장이 등록되지 않았습니다. 「내 매장 정보」에서 매장을 먼저 추가해 주세요.',

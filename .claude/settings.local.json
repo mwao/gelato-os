@@ -15,7 +15,8 @@
       "Bash(awk 'NR>=1 && $1+0 > 2080 && $1+0 < 2200')",
       "Bash(grep -n \"openEdit\\\\|handleDeleteRecord\\\\|onClick={openEdit\\\\|수정$\\\\|삭제$\" /Users/ijeonghyeon/Documents/project/gelato-os/src/pages/StaffPage.tsx)",
       "Bash(grep -n \"출근$\\\\|퇴근$\\\\|handlePunchIn\\\\|handlePunchOut\\\\|punchIn\\\\.mutate\\\\|punchOut\\\\.mutate\" /Users/ijeonghyeon/Documents/project/gelato-os/src/pages/StaffPage.tsx)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(npm run *)"
     ]
   }
 }
